@@ -15,6 +15,8 @@ import yaml
 from albumentations.augmentations import transforms
 from albumentations.augmentations import geometric
 import albumentations as A
+from albumentations.pytorch import ToTensorV2  # Needed for PyTorch compatibility
+
 
 from albumentations.core.composition import Compose, OneOf
 from sklearn.model_selection import train_test_split
@@ -244,6 +246,68 @@ def validate(config, val_loader, model, criterion):
                         ('dice', avg_meters['dice'].avg),
                         ('accuracy', avg_meters['accuracy'].avg)])
 
+def log_training_images(writer, train_loader, num_images=4, global_step=0):
+    """
+    Log training images and masks to TensorBoard.
+    
+    Args:
+        writer (SummaryWriter): TensorBoard writer.
+        train_loader (DataLoader): Training data loader.
+        num_images (int): Number of images to log.
+        global_step (int): Global step for TensorBoard logging.
+    """
+    # Get a batch of training data
+    images, masks, _ = next(iter(train_loader))
+    
+    # Log only the first `num_images` images and masks
+    images = images[:num_images]
+    masks = masks[:num_images]
+    
+    # Log images
+    writer.add_images('train/images', images, global_step)
+    
+    # Log masks (convert to grayscale for visualization)
+    writer.add_images('train/masks', masks, global_step)
+
+def log_validation_images(writer, val_loader, model, num_images=4, global_step=0):
+    """
+    Log validation images, masks, and predictions to TensorBoard.
+    
+    Args:
+        writer (SummaryWriter): TensorBoard writer.
+        val_loader (DataLoader): Validation data loader.
+        model (nn.Module): Trained model.
+        num_images (int): Number of images to log.
+        global_step (int): Global step for TensorBoard logging.
+    """
+    # Get a batch of validation data
+    images, masks, _ = next(iter(val_loader))
+    images = images.cuda()
+    masks = masks.cuda()
+    
+    # Run the model to get predictions
+    model.eval()
+    with torch.no_grad():
+        predictions = model(images)
+        if isinstance(predictions, list):  # Handle deep supervision
+            predictions = predictions[-1]
+    
+    # Log only the first `num_images` images, masks, and predictions
+    images = images[:num_images].cpu()
+    masks = masks[:num_images].cpu()
+    predictions = predictions[:num_images].cpu()
+    
+    # Log validation images
+    writer.add_images('val/images', images, global_step)
+    
+    # Log ground truth masks (convert to grayscale for visualization)
+    writer.add_images('val/masks', masks, global_step)
+    
+    # Log predictions (apply sigmoid if necessary and threshold at 0.5)
+    predictions = torch.sigmoid(predictions)  # Apply sigmoid for binary classification
+    predictions = (predictions > 0.5).float()  # Threshold at 0.5
+    writer.add_images('val/predictions', predictions, global_step)
+
 def seed_torch(seed=1029):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -379,15 +443,19 @@ def main():
 
     train_transform = Compose([
         RandomRotate90(),
-        A.HorizontalFlip(),
+        A.HorizontalFlip(),  # Flips image horizontally with 50% probability
+        A.VerticalFlip(),  # Flips image vertically with 50% probability
+
         # geometric.transforms.Flip(),
         Resize(config['input_h'], config['input_w']),
         transforms.Normalize(),
+        ToTensorV2(),  # Converts to PyTorch Tensor
     ])
 
     val_transform = Compose([
         Resize(config['input_h'], config['input_w']),
         transforms.Normalize(),
+        ToTensorV2(),  # Converts to PyTorch Tensor
     ])
 
     train_dataset = Dataset(
@@ -398,6 +466,7 @@ def main():
         mask_ext=mask_ext,
         num_classes=config['num_classes'],
         transform=train_transform)
+
     val_dataset = Dataset(
         img_ids=val_img_ids,
         img_dir=os.path.join(config['data_dir'] ,config['dataset'], 'and_images'),
@@ -406,6 +475,9 @@ def main():
         mask_ext=mask_ext,
         num_classes=config['num_classes'],
         transform=val_transform)
+
+    # Log the number of training images after transformation
+    print(f"Number of training images after transformation: {len(train_dataset)}")
 
     train_loader = torch.utils.data.DataLoader(
         train_dataset,
@@ -440,10 +512,17 @@ def main():
     for epoch in range(config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
 
+        # Log training images at the start of training
+        if epoch == 0:
+        log_training_images(my_writer, train_loader, global_step=epoch)
+
         # train for one epoch
         train_log = train(config, train_loader, model, criterion, optimizer)
         # evaluate on validation set
         val_log = validate(config, val_loader, model, criterion)
+
+        # Log validation images and predictions
+        log_validation_images(my_writer, val_loader, model, global_step=epoch)
 
         if config['scheduler'] == 'CosineAnnealingLR':
             scheduler.step()
@@ -497,6 +576,7 @@ def main():
         # if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
         #     print("=> early stopping")
         #     break
+
         if config['early_stopping'] > 0 and trigger >= config['early_stopping']:
              print("=> early stopping")
              break
