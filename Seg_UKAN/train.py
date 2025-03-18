@@ -78,7 +78,7 @@ def parse_args():
                         help='image width')
     parser.add_argument('--input_h', default=256, type=int,
                         help='image height')
-    parser.add_argument('--input_list', type=list_type, default=[128, 160, 256, 512])
+    parser.add_argument('--input_list', type=list_type, default=[128, 160, 256])
 
     # loss
     parser.add_argument('--loss', default='BCEDiceLoss',
