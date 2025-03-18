@@ -449,13 +449,13 @@ def main():
         # geometric.transforms.Flip(),
         Resize(config['input_h'], config['input_w']),
         transforms.Normalize(),
-        ToTensorV2(),  # Converts to PyTorch Tensor
+        # ToTensorV2(),  # Converts to PyTorch Tensor
     ])
 
     val_transform = Compose([
         Resize(config['input_h'], config['input_w']),
         transforms.Normalize(),
-        ToTensorV2(),  # Converts to PyTorch Tensor
+        # ToTensorV2(),  # Converts to PyTorch Tensor
     ])
 
     train_dataset = Dataset(
