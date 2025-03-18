@@ -514,7 +514,7 @@ def main():
 
         # Log training images at the start of training
         if epoch == 0:
-        log_training_images(my_writer, train_loader, global_step=epoch)
+            log_training_images(my_writer, train_loader, global_step=epoch)
 
         # train for one epoch
         train_log = train(config, train_loader, model, criterion, optimizer)
