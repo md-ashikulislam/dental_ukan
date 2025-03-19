@@ -489,4 +489,5 @@ def main(index):
 
 # Launch the training process
 if __name__ == '__main__':
-    xmp.spawn(main, nprocs=8)  # Use 8 TPU cores
+    # xmp.spawn(main, nprocs=8)  # Use 8 TPU 
+    main()  # No need for xmp.spawn()
