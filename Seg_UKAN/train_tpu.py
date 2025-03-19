@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.optim as optim
 import yaml
+from albumentations.augmentations import transforms
 from albumentations import Compose, RandomRotate90, Resize, Normalize
 import albumentations as A
 from sklearn.model_selection import train_test_split
@@ -488,4 +489,4 @@ def main(index):
 
 # Launch the training process
 if __name__ == '__main__':
-    xmp.spawn(main, nprocs=1)  # Use 8 TPU cores
+    xmp.spawn(main, nprocs=8)  # Use 8 TPU cores
