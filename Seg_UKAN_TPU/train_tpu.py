@@ -85,7 +85,7 @@ def parse_args():
     parser.add_argument('--gamma', default=2/3, type=float)
     parser.add_argument('--early_stopping', default=-1, type=int, metavar='N', help='early stopping (default: -1)')
     parser.add_argument('--cfg', type=str, metavar="FILE", help='path to config file')
-    parser.add_argument('--num_workers', default=4, type=int)
+    parser.add_argument('--num_workers', default=16, type=int)
     parser.add_argument('--no_kan', action='store_true')
 
     config = parser.parse_args()
@@ -123,7 +123,7 @@ def train(config, train_loader, model, criterion, optimizer):
 
         # Synchronize TPU cores and release memory
         xm.mark_step()
-        
+
         # Update metrics
         avg_meters['loss'].update(loss.item(), input.size(0))
         avg_meters['iou'].update(iou, input.size(0))
@@ -217,9 +217,11 @@ def log_validation_images(writer, val_loader, model, num_images=4, global_step=0
         global_step (int): Global step for TensorBoard logging.
     """
     # Get a batch of validation data
+    device = xm.xla_device()
     images, masks, _ = next(iter(val_loader))
-    images = images.cuda()
-    masks = masks.cuda()
+    images = images.to(device)
+    masks = masks.to(device)
+
     
     # Run the model to get predictions
     model.eval()
@@ -396,6 +398,7 @@ def main():
             batch_size=config['batch_size'],
             shuffle=True,
             num_workers=config['num_workers'],
+            prefetch_factor=2,  # Prefetch 2 batches
             drop_last=True),
         device=xm.xla_device())
 
