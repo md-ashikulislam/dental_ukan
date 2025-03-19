@@ -398,7 +398,7 @@ def main():
             batch_size=config['batch_size'],
             shuffle=True,
             num_workers=config['num_workers'],
-            prefetch_factor=2,  # Prefetch 2 batches
+            # prefetch_factor=2,  # Prefetch 2 batches
             drop_last=True),
         device=xm.xla_device())
 
