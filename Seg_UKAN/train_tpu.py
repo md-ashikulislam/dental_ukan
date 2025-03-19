@@ -264,8 +264,7 @@ def seed_torch(seed=1029):
     if xm.xla_device().type == 'xla':
         xm.set_rng_state(seed)
 
-def main(index):
-    print(f"Running on TPU core {index}")
+def main():
 
     # Set random seed for reproducibility
     seed_torch(seed=1029)
