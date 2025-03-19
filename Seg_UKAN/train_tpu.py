@@ -484,9 +484,18 @@ def main():
             xm.master_print("=> early stopping")
             break
 
-        # Synchronize TPU cores
-        xm.rendezvous('end_of_epoch')
+        # Synchronize TPU cores and release memory
+        xm.mark_step()  # Release memory after each epoch
 
+        # Print TPU memory usage
+        memory_info = xm.get_memory_info(xm.xla_device())
+        xm.master_print(f"TPU Memory Info: {memory_info}")
+
+        # Print TPU metrics
+        xm.master_print(met.metrics_report())
+
+    # Close TensorBoard writer
+    my_writer.close()
 
 # Launch the training process
 if __name__ == '__main__':
