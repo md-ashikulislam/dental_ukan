@@ -271,12 +271,12 @@ def main():
     seed_torch(seed=1029)
 
     # Parse arguments
-    config = vars(parse_args())
-    my_writer = SummaryWriter(f'{output_dir}/{exp_name}')
-    
+    config = vars(parse_args())    
     # Set up experiment name and output directory
     exp_name = config.get('name')
     output_dir = config.get('output_dir')
+
+    my_writer = SummaryWriter(f'{output_dir}/{exp_name}')
 
     if config['name'] is None:
         if config['deep_supervision']:
