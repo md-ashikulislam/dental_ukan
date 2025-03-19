@@ -101,7 +101,7 @@ def train(config, train_loader, model, criterion, optimizer):
         target = target.to(xm.xla_device())
 
         # Mixed precision training
-        with amp.autocast(device_type='xla'):
+        with amp.autocast():
             if config['deep_supervision']:
                 outputs = model(input)
                 loss = 0
@@ -147,7 +147,7 @@ def validate(config, val_loader, model, criterion):
             input = input.to(xm.xla_device())
             target = target.to(xm.xla_device())
 
-            with amp.autocast(device_type='xla'):
+            with amp.autocast():
                 if config['deep_supervision']:
                     outputs = model(input)
                     loss = 0
