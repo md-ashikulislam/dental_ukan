@@ -121,6 +121,9 @@ def train(config, train_loader, model, criterion, optimizer):
         loss.backward()
         xm.optimizer_step(optimizer)
 
+        # Synchronize TPU cores and release memory
+        xm.mark_step()
+        
         # Update metrics
         avg_meters['loss'].update(loss.item(), input.size(0))
         avg_meters['iou'].update(iou, input.size(0))
