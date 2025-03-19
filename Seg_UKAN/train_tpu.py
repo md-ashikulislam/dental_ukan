@@ -21,6 +21,7 @@ from dataset import Dataset
 from metrics import iou_score, indicators
 from utils import AverageMeter, str2bool
 from tensorboardX import SummaryWriter
+
 import shutil
 import torch_xla
 import torch_xla.core.xla_model as xm
@@ -271,7 +272,8 @@ def main():
 
     # Parse arguments
     config = vars(parse_args())
-
+    my_writer = SummaryWriter(f'{output_dir}/{exp_name}')
+    
     # Set up experiment name and output directory
     exp_name = config.get('name')
     output_dir = config.get('output_dir')
