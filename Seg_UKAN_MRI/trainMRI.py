@@ -414,6 +414,8 @@ def main():
        img_ext = '.JPG'  # Update for teeth dataset
     elif dataset_name == 'ph2':
        img_ext = '.bmp'
+    elif dataset_name == 'MRI_GG':
+       img_ext = '.jpg'       
 
     else:
        img_ext = '.jpg'  # Default for other datasets
