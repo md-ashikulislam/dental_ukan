@@ -412,14 +412,11 @@ def main():
     dataset_name = config['dataset']
     # if dataset_name == 'Dental' or 'Enhanced_Dental' or 'Resized_Teeth':
     #    img_ext = '.JPG'  # Update for teeth dataset
-    elif dataset_name == 'ph2':
+    if dataset_name == 'ph2':
        img_ext = '.bmp'
     elif dataset_name == 'MRI_GG':
        img_ext = '.jpg'       
 
-    else:
-       img_ext = '.jpg'  # Default for other datasets
-    # img_ext = '.png'
 
     if dataset_name == 'busi':
         mask_ext = '_mask.png'
@@ -433,8 +430,6 @@ def main():
     elif dataset_name == 'HAM':
         mask_ext = '_segmentation.png'
     
-    else:
-        mask_ext = '.png'
 
     # Data loading code
     # img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'images', '*' + img_ext)))
