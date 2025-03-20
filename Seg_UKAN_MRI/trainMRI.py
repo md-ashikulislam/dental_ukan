@@ -426,6 +426,8 @@ def main():
         mask_ext = '.jpg'
     elif dataset_name == 'ph2':
         mask_ext = '.bmp'
+    elif dataset_name == 'MRI_GG':
+        mask_ext = '.png'
     elif dataset_name == 'HAM':
         mask_ext = '_segmentation.png'
     
