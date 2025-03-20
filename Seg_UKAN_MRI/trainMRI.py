@@ -406,8 +406,8 @@ def main():
     else:
         raise NotImplementedError
 
-    shutil.copy2('train.py', f'{output_dir}/{exp_name}/')
-    shutil.copy2('archs.py', f'{output_dir}/{exp_name}/')
+    # shutil.copy2('train.py', f'{output_dir}/{exp_name}/')
+    # shutil.copy2('archs.py', f'{output_dir}/{exp_name}/')
 
     dataset_name = config['dataset']
     if dataset_name == 'Dental' or 'Enhanced_Dental' or dataset_name == 'Resized_Teeth':
