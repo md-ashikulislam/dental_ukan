@@ -310,6 +310,8 @@ def main():
     # Create model and move to TPU
     model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
     model = model.to(xm.xla_device())
+    
+    model.load_state_dict(torch.load('/content/model.pth'))
 
     # Optimizer
     param_groups = []
