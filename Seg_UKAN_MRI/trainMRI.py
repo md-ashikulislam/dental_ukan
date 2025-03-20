@@ -410,26 +410,10 @@ def main():
     # shutil.copy2('archs.py', f'{output_dir}/{exp_name}/')
 
     dataset_name = config['dataset']
-    # if dataset_name == 'Dental' or 'Enhanced_Dental' or 'Resized_Teeth':
-    #    img_ext = '.JPG'  # Update for teeth dataset
-    if dataset_name == 'ph2':
-       img_ext = '.bmp'
-    elif dataset_name == 'MRI_GG':
+
+    if dataset_name == 'MRI_GG':
        img_ext = '.jpg'       
-
-
-    if dataset_name == 'busi':
-        mask_ext = '_mask.png'
-
-    elif dataset_name == 'Enhanced_Dental' or 'Dental':
-        mask_ext = '.jpg'
-    elif dataset_name == 'ph2':
-        mask_ext = '.bmp'
-    elif dataset_name == 'MRI_GG':
-        mask_ext = '.png'
-    elif dataset_name == 'HAM':
-        mask_ext = '_segmentation.png'
-    
+       mask_ext = '.png'
 
     # Data loading code
     img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'images', '*' + img_ext)))
