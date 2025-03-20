@@ -414,29 +414,26 @@ def main():
        img_ext = '.JPG'  # Update for teeth dataset
     elif dataset_name == 'ph2':
        img_ext = '.bmp'
-    elif dataset_name == 'HAM':
-       img_ext = '.jpg'
+
     else:
-       img_ext = '.png'  # Default for other datasets
+       img_ext = '.jpg'  # Default for other datasets
     # img_ext = '.png'
 
     if dataset_name == 'busi':
         mask_ext = '_mask.png'
-    elif dataset_name == 'glas':
-        mask_ext = '.png'
+
     elif dataset_name == 'Enhanced_Dental' or 'Dental':
         mask_ext = '.jpg'
-    elif dataset_name == 'Resized_Teeth':
-        mask_ext = '.jpg'
-    elif dataset_name == 'cvc':
-        mask_ext = '.png'
     elif dataset_name == 'ph2':
         mask_ext = '.bmp'
     elif dataset_name == 'HAM':
         mask_ext = '_segmentation.png'
+    
+    else:
+        mask_ext = '.png'
 
     # Data loading code
-    img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'and_images', '*' + img_ext)))
+    img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'images', '*' + img_ext)))
     img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
 
     train_img_ids, val_img_ids = train_test_split(img_ids, test_size=0.15, random_state=config['dataseed'])
@@ -447,20 +444,20 @@ def main():
         A.VerticalFlip(),  # Flips image vertically with 50% probability
 
         # geometric.transforms.Flip(),
-        Resize(config['input_h'], config['input_w']),
+        # Resize(config['input_h'], config['input_w']),
         transforms.Normalize(),
         # ToTensorV2(),  # Converts to PyTorch Tensor
     ])
 
     val_transform = Compose([
-        Resize(config['input_h'], config['input_w']),
+        # Resize(config['input_h'], config['input_w']),
         transforms.Normalize(),
         # ToTensorV2(),  # Converts to PyTorch Tensor
     ])
 
     train_dataset = Dataset(
         img_ids=train_img_ids,
-        img_dir=os.path.join(config['data_dir'], config['dataset'], 'and_images'),
+        img_dir=os.path.join(config['data_dir'], config['dataset'], 'images'),
         mask_dir=os.path.join(config['data_dir'], config['dataset'], 'masks'),
         img_ext=img_ext,
         mask_ext=mask_ext,
@@ -469,7 +466,7 @@ def main():
 
     val_dataset = Dataset(
         img_ids=val_img_ids,
-        img_dir=os.path.join(config['data_dir'] ,config['dataset'], 'and_images'),
+        img_dir=os.path.join(config['data_dir'] ,config['dataset'], 'images'),
         mask_dir=os.path.join(config['data_dir'], config['dataset'], 'masks'),
         img_ext=img_ext,
         mask_ext=mask_ext,
