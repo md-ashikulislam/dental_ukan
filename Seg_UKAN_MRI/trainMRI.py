@@ -431,19 +431,19 @@ def main():
         mask_ext = '_segmentation.png'
     
 
-    # Data loading code
-    # img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'images', '*' + img_ext)))
-    # img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
-
-    # Data loading code
+    Data loading code
     img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'images', '*' + img_ext)))
-    print(f"Found {len(img_ids)} images with extension {img_ext}")  # Debugging
     img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
-    print(f"Image IDs: {img_ids}")  # Debugging
 
-    # Check if any images were found
-    if len(img_ids) == 0:
-        raise ValueError(f"No images found in {os.path.join(config['data_dir'], config['dataset'], 'images')} with extension {img_ext}")
+    # # Data loading code
+    # img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'images', '*' + img_ext)))
+    # print(f"Found {len(img_ids)} images with extension {img_ext}")  # Debugging
+    # img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
+    # print(f"Image IDs: {img_ids}")  # Debugging
+
+    # # Check if any images were found
+    # if len(img_ids) == 0:
+    #     raise ValueError(f"No images found in {os.path.join(config['data_dir'], config['dataset'], 'images')} with extension {img_ext}")
 
     train_img_ids, val_img_ids = train_test_split(img_ids, test_size=0.15, random_state=config['dataseed'])
 
