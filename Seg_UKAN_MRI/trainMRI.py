@@ -431,7 +431,7 @@ def main():
         mask_ext = '_segmentation.png'
     
 
-    Data loading code
+    # Data loading code
     img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'images', '*' + img_ext)))
     img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
 
