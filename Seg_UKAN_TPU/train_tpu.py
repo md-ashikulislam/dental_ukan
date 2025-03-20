@@ -310,10 +310,13 @@ def main():
     # Create model and move to TPU
     device = xm.xla_device()
     model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
-    model = model.to(device)
+    # model = model.to(device)
 
-    # Load the model with map_location set to the TPU device
-    model.load_state_dict(torch.load('/content/model.pth', map_location=device))
+    # Load the model onto the CPU first
+    model.load_state_dict(torch.load('/content/model.pth', map_location=torch.device('cpu')))
+
+    # Transfer the model to the TPU device
+    model.to(device) 
 
     # Optimizer
     param_groups = []
