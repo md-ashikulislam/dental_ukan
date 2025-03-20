@@ -448,7 +448,7 @@ def main():
 
     # Check if any images were found
     if len(img_ids) == 0:
-    raise ValueError(f"No images found in {os.path.join(config['data_dir'], config['dataset'], 'images')} with extension {img_ext}")
+        raise ValueError(f"No images found in {os.path.join(config['data_dir'], config['dataset'], 'images')} with extension {img_ext}")
 
     train_img_ids, val_img_ids = train_test_split(img_ids, test_size=0.15, random_state=config['dataseed'])
 
