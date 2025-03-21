@@ -21,7 +21,7 @@ class Dataset(torch.utils.data.Dataset):
         Note:
             Make sure to put the files as the following structure:
             <dataset name>
-            ├── and_images
+            ├── images
             |   ├── 0a7e06.jpg
             │   ├── 0aab0a.jpg
             │   ├── 0b1761.jpg
