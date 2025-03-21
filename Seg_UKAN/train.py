@@ -412,13 +412,12 @@ def main():
     dataset_name = config['dataset']
     if dataset_name == 'Dental' or 'Enhanced_Dental' or dataset_name == 'Resized_Teeth' or 'Teeth_Final':
        img_ext = '.JPG'  # Update for teeth dataset
+       mask_ext = '.png'
     elif dataset_name == 'ph2':
        img_ext = '.bmp'
     elif dataset_name == 'HAM':
        img_ext = '.jpg'
-    else:
-       img_ext = '.png'  # Default for other datasets
-    # img_ext = '.png'
+
 
     if dataset_name == 'busi':
         mask_ext = '_mask.png'
@@ -428,7 +427,7 @@ def main():
         mask_ext = '.jpg'
     elif dataset_name == 'Resized_Teeth':
         mask_ext = '.jpg'
-    elif dataset_name == 'cvc' or 'Teeth_Final':
+    elif dataset_name == 'cvc':
         mask_ext = '.png'
     elif dataset_name == 'ph2':
         mask_ext = '.bmp'
