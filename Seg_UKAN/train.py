@@ -411,7 +411,7 @@ def main():
 
     dataset_name = config['dataset']
 
-    if dataset_name == 'Teeth_Final':
+    if dataset_name == 'Teeth_Final' or 'DentalLast':
        img_ext = '.JPG'  # Update for teeth dataset
        mask_ext = '.png'
 
