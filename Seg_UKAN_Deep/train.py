@@ -37,51 +37,87 @@ def list_type(s):
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--name', default=None, help='model name')
-    parser.add_argument('--epochs', default=15, type=int)
-    parser.add_argument('-b', '--batch_size', default=16, type=int)
-    parser.add_argument('--dataseed', default=2981, type=int)
+
+    parser.add_argument('--name', default=None,
+                        help='model name: (default: arch+timestamp)')
+    parser.add_argument('--epochs', default=15, type=int, metavar='N',
+                        help='number of total epochs to run')
+    parser.add_argument('-b', '--batch_size', default=16, type=int,
+                        metavar='N', help='mini-batch size (default: 16)')
+
+    parser.add_argument('--dataseed', default=2981, type=int,
+                        help='')
     
-    # Model args
-    parser.add_argument('--arch', default='UKAN')
+    # model
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='UKAN')
+    
     parser.add_argument('--deep_supervision', default=False, type=str2bool)
-    parser.add_argument('--input_channels', default=3, type=int)
-    parser.add_argument('--num_classes', default=1, type=int)
-    parser.add_argument('--input_w', default=256, type=int)
-    parser.add_argument('--input_h', default=256, type=int)
+    parser.add_argument('--input_channels', default=3, type=int,
+                        help='input channels')
+    parser.add_argument('--num_classes', default=1, type=int,
+                        help='number of classes')
+    parser.add_argument('--input_w', default=256, type=int,
+                        help='image width')
+    parser.add_argument('--input_h', default=256, type=int,
+                        help='image height')
     parser.add_argument('--input_list', type=list_type, default=[128, 160, 256])
+
+    # loss
+    parser.add_argument('--loss', default='BCEDiceLoss',
+                        choices=LOSS_NAMES,
+                        help='loss: ' +
+                        ' | '.join(LOSS_NAMES) +
+                        ' (default: BCEDiceLoss)')
     
-    # Loss args
-    parser.add_argument('--loss', default='BCEDiceLoss', choices=LOSS_NAMES)
-    
-    # Dataset args
-    parser.add_argument('--dataset', default='busi')
-    parser.add_argument('--data_dir', default='inputs')
-    parser.add_argument('--output_dir', default='outputs')
-    
-    # Optimizer args
-    parser.add_argument('--optimizer', default='Adam', choices=['Adam', 'SGD'])
-    parser.add_argument('--lr', default=1e-4, type=float)
-    parser.add_argument('--momentum', default=0.9, type=float)
-    parser.add_argument('--weight_decay', default=1e-4, type=float)
-    parser.add_argument('--nesterov', default=False, type=str2bool)
-    parser.add_argument('--kan_lr', default=1e-2, type=float)
-    parser.add_argument('--kan_weight_decay', default=1e-4, type=float)
-    
-    # Scheduler args
+    # dataset
+    parser.add_argument('--dataset', default='busi', help='dataset name')      
+    parser.add_argument('--data_dir', default='inputs', help='dataset dir')
+
+    parser.add_argument('--output_dir', default='outputs', help='ouput dir')
+
+
+    # optimizer
+    parser.add_argument('--optimizer', default='Adam',
+                        choices=['Adam', 'SGD'],
+                        help='loss: ' +
+                        ' | '.join(['Adam', 'SGD']) +
+                        ' (default: Adam)')
+
+    parser.add_argument('--lr', '--learning_rate', default=1e-4, type=float,
+                        metavar='LR', help='initial learning rate')
+    parser.add_argument('--momentum', default=0.9, type=float,
+                        help='momentum')
+    parser.add_argument('--weight_decay', default=1e-4, type=float,
+                        help='weight decay')
+    parser.add_argument('--nesterov', default=False, type=str2bool,
+                        help='nesterov')
+
+    parser.add_argument('--kan_lr', default=1e-2, type=float,
+                        metavar='LR', help='initial learning rate')
+    parser.add_argument('--kan_weight_decay', default=1e-4, type=float,
+                        help='weight decay')
+
+    # scheduler
     parser.add_argument('--scheduler', default='CosineAnnealingLR',
-                      choices=['CosineAnnealingLR', 'ReduceLROnPlateau', 'MultiStepLR', 'ConstantLR'])
-    parser.add_argument('--min_lr', default=1e-5, type=float)
+                        choices=['CosineAnnealingLR', 'ReduceLROnPlateau', 'MultiStepLR', 'ConstantLR'])
+    parser.add_argument('--min_lr', default=1e-5, type=float,
+                        help='minimum learning rate')
     parser.add_argument('--factor', default=0.1, type=float)
     parser.add_argument('--patience', default=2, type=int)
     parser.add_argument('--milestones', default='1,2', type=str)
     parser.add_argument('--gamma', default=2/3, type=float)
-    parser.add_argument('--early_stopping', default=-1, type=int)
-    parser.add_argument('--cfg', type=str)
+    parser.add_argument('--early_stopping', default=-1, type=int,
+                        metavar='N', help='early stopping (default: -1)')
+    parser.add_argument('--cfg', type=str, metavar="FILE", help='path to config file', )
     parser.add_argument('--num_workers', default=4, type=int)
+
     parser.add_argument('--no_kan', action='store_true')
 
-    return vars(parser.parse_args())
+
+
+    config = parser.parse_args()
+
+    return config
 
 def train(config, train_loader, model, criterion, optimizer):
     avg_meters = {'loss': AverageMeter(),
