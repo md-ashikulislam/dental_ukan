@@ -38,25 +38,33 @@ def dice_coef(output, target):
     return (2. * intersection + smooth) / \
         (output.sum() + target.sum() + smooth)
 
+
 def indicators(output, target):
-    if torch.is_tensor(output):
-        output = torch.sigmoid(output).data.cpu().numpy()
-    if torch.is_tensor(target):
-        target = target.data.cpu().numpy()
+    output = torch.sigmoid(output).data.cpu().numpy()
+    target = target.data.cpu().numpy()
+    
     output_ = output > 0.5
     target_ = target > 0.5
-
-    iou_ = jc(output_, target_)
-    dice_ = dc(output_, target_)
-    hd_ = hd(output_, target_)
-    hd95_ = hd95(output_, target_)
-    recall_ = recall(output_, target_)
-    specificity_ = specificity(output_, target_)
-    precision_ = precision(output_, target_)
-
-    # Compute accuracy
-    correct = (output_ == target_).sum()
-    total = target_.size  # Total number of pixels
-    accuracy_ = correct / total
-
-    return iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_
+    
+    # Initialize default values
+    hd_ = hd95_ = float('inf')
+    iou_ = dice_ = recall_ = specificity_ = precision_ = accuracy_ = 0.0
+    
+    # Only calculate HD if prediction contains foreground
+    if np.any(output_):
+        try:
+            hd_ = hd(output_, target_)
+            hd95_ = hd95(output_, target_)
+        except RuntimeError:
+            pass  # Keep infinite values if calculation fails
+    
+    # Calculate other metrics
+    if np.any(output_) or np.any(target_):
+        iou_ = jc(output_, target_)
+        dice_ = dc(output_, target_)
+        recall_ = recall(output_, target_)
+        specificity_ = specificity(output_, target_)
+        precision_ = precision(output_, target_)
+        accuracy_ = accuracy(output_, target_)
+    
+    return (iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_)
