@@ -379,17 +379,17 @@ def main():
     cudnn.benchmark = True
 
     # create model
-    # model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
+    model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
 
-    # Create model
-    model = UKAN_SE(
-        num_classes=config['num_classes'],
-        input_channels=config['input_channels'],
-        deep_supervision=config['deep_supervision'],
-        img_size=config['input_h'],
-        embed_dims=[int(d) for d in config['input_list']],
-        no_kan=config['no_kan']
-    )
+    # # Create model
+    # model = UKAN_SE(
+    #     num_classes=config['num_classes'],
+    #     input_channels=config['input_channels'],
+    #     deep_supervision=config['deep_supervision'],
+    #     img_size=config['input_h'],
+    #     embed_dims=[int(d) for d in config['input_list']],
+    #     no_kan=config['no_kan']
+    # )
 
     # Count parameters and print PrettyTable
     total_params = count_parameters(model)
