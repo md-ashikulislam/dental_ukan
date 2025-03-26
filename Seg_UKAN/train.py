@@ -31,7 +31,7 @@ import archs
 import losses
 from dataset import Dataset
 
-from metrics import iou_score, indicators
+from metrics import iou_score, indicators, dice_coef, accuracy_score
 
 from utils import AverageMeter, str2bool
 
