@@ -231,7 +231,6 @@ class KANLinear(torch.nn.Module):
             + regularize_entropy * regularization_loss_entropy
         )
 
-
 class KAN(torch.nn.Module):
     def __init__(
         self,

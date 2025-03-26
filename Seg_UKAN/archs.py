@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+import torch
 import torchvision
 from torch import nn
 from torch.autograd import Variable
@@ -16,12 +17,10 @@ from timm.layers import DropPath, to_2tuple, trunc_normal_
 import types
 import math
 from abc import ABCMeta, abstractmethod
-# from mmcv.cnn import ConvModule
 from pdb import set_trace as st
 
 from kan import KANLinear, KAN
 from torch.nn import init
-
 
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
@@ -178,7 +177,6 @@ class KANBlock(nn.Module):
 
         return x
 
-
 class DWConv(nn.Module):
     def __init__(self, dim=768):
         super(DWConv, self).__init__()
@@ -250,7 +248,6 @@ class PatchEmbed(nn.Module):
         x = self.norm(x)
 
         return x, H, W
-
 
 class ConvLayer(nn.Module):
     def __init__(self, in_ch, out_ch):

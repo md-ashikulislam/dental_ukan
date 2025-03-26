@@ -11,18 +11,19 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
 import yaml
+import cv2
 
 from albumentations.augmentations import transforms
 from albumentations.augmentations import geometric
 import albumentations as A
-from albumentations.pytorch import ToTensorV2  # Needed for PyTorch compatibility
-
+from albumentations import CLAHE
 
 from albumentations.core.composition import Compose, OneOf
 from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
 from tqdm import tqdm
 from albumentations import RandomRotate90, Resize
+from albumentations import MedianBlur
 
 import archs
 
@@ -34,6 +35,7 @@ from metrics import iou_score, indicators
 from utils import AverageMeter, str2bool
 
 from tensorboardX import SummaryWriter
+from prettytable import PrettyTable
 
 import shutil
 import os
@@ -53,7 +55,6 @@ def list_type(s):
     str_list = s.split(',')
     int_list = [int(a) for a in str_list]
     return int_list
-
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -139,7 +140,6 @@ def parse_args():
 
     return config
 
-
 def train(config, train_loader, model, criterion, optimizer):
     avg_meters = {'loss': AverageMeter(),
                   'iou': AverageMeter(),
@@ -162,14 +162,16 @@ def train(config, train_loader, model, criterion, optimizer):
                 loss += criterion(output, target)
             loss /= len(outputs)
 
-            iou, dice, _ = iou_score(outputs[-1], target)
-            iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_ = indicators(outputs[-1], target)
+            iou = iou_score(outputs[-1], target)
+            dice = dice_coef(outputs[-1], target)
+            # iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_ = indicators(outputs[-1], target)
             
         else:
             output = model(input)
             loss = criterion(output, target)
-            iou, dice, _ = iou_score(output, target)
-            iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_ = indicators(output, target)
+            dice = dice_coef(output, target)
+            acccuracy = accuracy_score(output, target)
+            # iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_ = indicators(output, target)
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
@@ -318,6 +320,18 @@ def seed_torch(seed=1029):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
+def count_parameters(model):
+    """Count and display trainable parameters using PrettyTable"""
+    table = PrettyTable(["Module", "Parameters"])
+    total_params = 0
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            param_count = param.numel()
+            table.add_row([name, f"{param_count:,}"])
+            total_params += param_count
+    print(table)
+    print(f"Total Trainable Parameters: {total_params:,}")
+    return total_params
 
 def main():
     seed_torch()
@@ -355,6 +369,11 @@ def main():
     # create model
     model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
 
+
+    # Count parameters and print PrettyTable
+    total_params = count_parameters(model)
+    config['total_params'] = total_params  # Store in config for yaml
+
     #FOR 1 GPUs
     # model = model.cuda()
 
@@ -365,7 +384,8 @@ def main():
       model = torch.nn.DataParallel(model)
     model = model.cuda()  # Move to CUDA
 
-    # model.load_state_dict(torch.load('/kaggle/input/checkpoint120-50/model.pth'))
+    # model.load_state_dict(torch.load('/kaggle/input/checkpoint60/model60.pth'))
+
 
     param_groups = []
 
@@ -382,7 +402,6 @@ def main():
             param_groups.append({'params': param, 'lr': config['lr'], 'weight_decay': config['weight_decay']})  
     
 
-    
     # st()
     if config['optimizer'] == 'Adam':
         optimizer = optim.Adam(param_groups)
@@ -405,16 +424,13 @@ def main():
     else:
         raise NotImplementedError
 
-    shutil.copy2('train.py', f'{output_dir}/{exp_name}/')
-    shutil.copy2('archs.py', f'{output_dir}/{exp_name}/')
 
     dataset_name = config['dataset']
 
-    if dataset_name == 'Teeth_Final' or 'DentalLast':
-       img_ext = '.JPG'  # Update for teeth dataset
-       mask_ext = '.png'
-
-
+    if dataset_name == 'Teeth':
+       img_ext = '.JPG'       
+       mask_ext = '.jpg'
+    
     # Data loading code
     img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'images', '*' + img_ext)))
     img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
@@ -423,19 +439,21 @@ def main():
 
     train_transform = Compose([
         RandomRotate90(),
-        A.HorizontalFlip(),  # Flips image horizontally with 50% probability
-        A.VerticalFlip(),  # Flips image vertically with 50% probability
-
-        # geometric.transforms.Flip(),
-        # Resize(config['input_h'], config['input_w']),
+        A.HorizontalFlip(),
+        A.VerticalFlip(),
+        Resize(config['input_h'], config['input_w']),
+        A.ToGray(),
+        MedianBlur(blur_limit=3, always_apply=True),  # Median filter (3x3 kernel)
+        CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), always_apply=True),  # Add CLAHE here
         transforms.Normalize(),
-        # ToTensorV2(),  # Converts to PyTorch Tensor
     ])
 
     val_transform = Compose([
-        # Resize(config['input_h'], config['input_w']),
+        Resize(config['input_h'], config['input_w']),
+        A.ToGray(),
+        MedianBlur(blur_limit=3, always_apply=True),  # Median filter (3x3 kernel)
+        CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), always_apply=True),  # Add CLAHE here
         transforms.Normalize(),
-        # ToTensorV2(),  # Converts to PyTorch Tensor
     ])
 
     train_dataset = Dataset(
