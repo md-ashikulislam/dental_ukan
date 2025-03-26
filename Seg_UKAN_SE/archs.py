@@ -509,7 +509,7 @@ class UKAN_SE(nn.Module):
         super().__init__()
         
         # Encoder with SE
-        self.encoder1 = ConvLayer_SE(input_channels, embed_dims[0]//8)
+        self.encoder1 = ConvLayer_SE(3, embed_dims[0]//8)
         self.encoder2 = ConvLayer_SE(embed_dims[0]//8, embed_dims[0]//4)
         self.encoder3 = ConvLayer_SE(embed_dims[0]//4, embed_dims[0])
         
