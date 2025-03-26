@@ -74,7 +74,7 @@ def parse_args():
     parser.add_argument('--arch', '-a', metavar='ARCH', default='UKAN_SE')
     
     parser.add_argument('--deep_supervision', default=False, type=str2bool)
-    parser.add_argument('--input_channels', default=3, type=int,
+    parser.add_argument('--input_channels', default=1, type=int,
                         help='input channels')
     parser.add_argument('--num_classes', default=1, type=int,
                         help='number of classes')
@@ -381,15 +381,6 @@ def main():
     # create model
     model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
 
-    # # Create model
-    # model = UKAN_SE(
-    #     num_classes=config['num_classes'],
-    #     input_channels=config['input_channels'],
-    #     deep_supervision=config['deep_supervision'],
-    #     img_size=config['input_h'],
-    #     embed_dims=[int(d) for d in config['input_list']],
-    #     no_kan=config['no_kan']
-    # )
 
     # Count parameters and print PrettyTable
     total_params = count_parameters(model)

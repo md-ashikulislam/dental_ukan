@@ -54,7 +54,9 @@ class ConvLayer_SE(nn.Module):
         self.se = SEBlock(out_ch)
 
     def forward(self, x):
-        return self.se(self.conv(x))
+        x = self.conv(x)
+        x = self.se(x)  # Apply SE after conv operations
+        return x
 
 class D_ConvLayer(nn.Module):
     def __init__(self, in_ch, out_ch):
