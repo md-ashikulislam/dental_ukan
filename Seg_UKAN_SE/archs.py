@@ -346,6 +346,9 @@ class PatchEmbed(nn.Module):
     """Image to Patch Embedding"""
     def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, embed_dim=768):
         super().__init__()
+        # Convert patch_size to tuple if it's an integer
+        patch_size = to_2tuple(patch_size)
+        
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride,
                             padding=(patch_size[0]//2, patch_size[1]//2))
         self.norm = nn.LayerNorm(embed_dim)
@@ -356,6 +359,11 @@ class PatchEmbed(nn.Module):
         x = x.flatten(2).transpose(1, 2)
         x = self.norm(x)
         return x, H, W
+
+def to_2tuple(x):
+    if isinstance(x, (list, tuple)):
+        return x
+    return (x, x)
 
 class UKAN(nn.Module):
     def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, embed_dims=[256, 320, 512], no_kan=False,
@@ -485,8 +493,10 @@ class UKAN_SE(nn.Module):
         self.encoder3 = ConvLayer_SE(embed_dims[0]//4, embed_dims[0])
         
         # KAN-SE Blocks
-        self.patch_embed3 = PatchEmbed(img_size//4, 3, 2, embed_dims[0], embed_dims[1])
-        self.patch_embed4 = PatchEmbed(img_size//8, 3, 2, embed_dims[1], embed_dims[2])
+        self.patch_embed3 = PatchEmbed(img_size//4, patch_size=3, stride=2, 
+                                     in_chans=embed_dims[0], embed_dim=embed_dims[1])
+        self.patch_embed4 = PatchEmbed(img_size//8, patch_size=3, stride=2, 
+                                     in_chans=embed_dims[1], embed_dim=embed_dims[2])
         
         self.block1 = nn.ModuleList([KANBlock_SE(embed_dims[1], no_kan=no_kan)])
         self.block2 = nn.ModuleList([KANBlock_SE(embed_dims[2], no_kan=no_kan)])
