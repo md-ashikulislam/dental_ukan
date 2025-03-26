@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 
-from timm.layers import DropPath, trunc_normal_
+from timm.layers import DropPath, to_2tuple, trunc_normal_
 from kan import KANLinear, KAN
 
 class SEBlock(nn.Module):
@@ -512,10 +512,8 @@ class UKAN_SE(nn.Module):
         self.encoder3 = ConvLayer_SE(embed_dims[0]//4, embed_dims[0])
         
         # KAN-SE Blocks
-        self.patch_embed3 = PatchEmbed(img_size//4, patch_size=3, stride=2, 
-                                     in_chans=embed_dims[0], embed_dim=embed_dims[1])
-        self.patch_embed4 = PatchEmbed(img_size//8, patch_size=3, stride=2, 
-                                     in_chans=embed_dims[1], embed_dim=embed_dims[2])
+        self.patch_embed3 = PatchEmbed(img_size//4, 3, 2, embed_dims[0], embed_dims[1])
+        self.patch_embed4 = PatchEmbed(img_size//8, 3, 2, embed_dims[1], embed_dims[2])
         
         self.block1 = nn.ModuleList([KANBlock_SE(embed_dims[1], no_kan=no_kan)])
         self.block2 = nn.ModuleList([KANBlock_SE(embed_dims[2], no_kan=no_kan)])
