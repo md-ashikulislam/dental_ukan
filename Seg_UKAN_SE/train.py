@@ -45,8 +45,8 @@ import subprocess
 from pdb import set_trace as st
 
 
-from archs import UKAN  # Import the required model directly
-ARCH_NAMES = ['UKAN'] 
+from archs import UKAN_SE  # Import the required model directly
+ARCH_NAMES = ['UKAN_SE'] 
 # ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
@@ -71,7 +71,7 @@ def parse_args():
                         help='')
     
     # model
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='UKAN')
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='UKAN_SE')
     
     parser.add_argument('--deep_supervision', default=False, type=str2bool)
     parser.add_argument('--input_channels', default=3, type=int,
@@ -379,8 +379,17 @@ def main():
     cudnn.benchmark = True
 
     # create model
-    model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
+    # model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
 
+    # Create model
+    model = UKAN_SE(
+        num_classes=config['num_classes'],
+        input_channels=config['input_channels'],
+        deep_supervision=config['deep_supervision'],
+        img_size=config['input_h'],
+        embed_dims=[int(d) for d in config['input_list']],
+        no_kan=config['no_kan']
+    )
 
     # Count parameters and print PrettyTable
     total_params = count_parameters(model)
