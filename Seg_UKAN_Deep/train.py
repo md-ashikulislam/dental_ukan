@@ -1,39 +1,61 @@
-import argparse
 import os
+import gc
+import argparse
 from collections import OrderedDict
 from glob import glob
 import random
 import numpy as np
+
 import pandas as pd
 import torch
 import torch.backends.cudnn as cudnn
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
 import yaml
-from albumentations import Compose, RandomRotate90, Resize
+import cv2
+
 from albumentations.augmentations import transforms
+from albumentations.augmentations import geometric
 import albumentations as A
+from albumentations import CLAHE
+
+from albumentations.core.composition import Compose, OneOf
 from sklearn.model_selection import train_test_split
 from torch.optim import lr_scheduler
 from tqdm import tqdm
-from tensorboardX import SummaryWriter
-import shutil
-import subprocess
-from pdb import set_trace as st
+from albumentations import RandomRotate90, Resize
+from albumentations import MedianBlur
 
 import archs
+
 import losses
 from dataset import Dataset
-from metrics import iou_score, indicators
+
+from metrics import iou_score, indicators, dice_coef, accuracy_score
+
 from utils import AverageMeter, str2bool
 
-ARCH_NAMES = ['UKAN']
+from tensorboardX import SummaryWriter
+from prettytable import PrettyTable
+
+import shutil
+import os
+import subprocess
+
+from pdb import set_trace as st
+
+
+from archs import UKAN  # Import the required model directly
+ARCH_NAMES = ['UKAN'] 
+# ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
 
+
 def list_type(s):
-    return [int(a) for a in s.split(',')]
+    str_list = s.split(',')
+    int_list = [int(a) for a in str_list]
+    return int_list
 
 def parse_args():
     parser = argparse.ArgumentParser()
@@ -121,116 +143,122 @@ def parse_args():
 
 def train(config, train_loader, model, criterion, optimizer):
     avg_meters = {'loss': AverageMeter(),
-                 'iou': AverageMeter(),
-                 'accuracy': AverageMeter()}
-    
+                  'iou': AverageMeter(),
+                  'accuracy': AverageMeter()}  # Add accuracy
+
     model.train()
-    
+
     pbar = tqdm(total=len(train_loader))
     for input, target, _ in train_loader:
-        input = input.cuda(non_blocking=True)
-        target = target.cuda(non_blocking=True)
-        
-        # Forward pass
-        outputs = model(input)
-        
-        # Deep supervision handling
+        input = input.cuda(non_blocking=True)  # Move input to GPU
+        target = target.cuda(non_blocking=True)  # Move target to GPU
+        # input = input.cuda()
+        # target = target.cuda()
+
+        # compute output
         if config['deep_supervision']:
+            outputs = model(input)
             loss = 0
             for output in outputs:
-                # Ensure output matches target size
-                if output.shape[-2:] != target.shape[-2:]:
-                    output = F.interpolate(output, size=target.shape[-2:], 
-                                         mode='bilinear', align_corners=True)
                 loss += criterion(output, target)
             loss /= len(outputs)
-            # Metrics on final output
             output = outputs[-1]
+            
         else:
-            loss = criterion(outputs, target)
-            output = outputs
-        
-        # Compute metrics
-        iou, dice, _ = iou_score(output, target)
-        iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_ = indicators(output, target)
-        
-        # Backward pass
+            output = model(input)
+            loss = criterion(output, target)
+
+        # compute metrics
+        iou = iou_score(output, target)
+        dice = dice_coef(output, target)
+        accuracy = accuracy_score(output, target)
+
+        # If you need other metrics later:
+        # iou, dice, recall, specificity, precision, accuracy = indicators(output, target)
+
+        # compute gradient and do optimizing step
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        
-        # Update metrics
+
         avg_meters['loss'].update(loss.item(), input.size(0))
         avg_meters['iou'].update(iou, input.size(0))
-        avg_meters['accuracy'].update(accuracy_, input.size(0))
-        
-        pbar.set_postfix(OrderedDict([
+        avg_meters['accuracy'].update(accuracy, input.size(0))  # Add accuracy update
+
+        postfix = OrderedDict([
             ('loss', avg_meters['loss'].avg),
             ('iou', avg_meters['iou'].avg),
-            ('accuracy', avg_meters['accuracy'].avg)
-        ]))
+            ('accuracy', avg_meters['accuracy'].avg)  # Include accuracy in logs
+        ])
+        pbar.set_postfix(postfix)
         pbar.update(1)
     pbar.close()
-    
-    return OrderedDict([
-        ('loss', avg_meters['loss'].avg),
-        ('iou', avg_meters['iou'].avg),
-        ('accuracy', avg_meters['accuracy'].avg)
-    ])
+
+    return OrderedDict([('loss', avg_meters['loss'].avg),
+                        ('iou', avg_meters['iou'].avg),
+                        ('accuracy', avg_meters['accuracy'].avg)])  # Return accuracy
 
 def validate(config, val_loader, model, criterion):
     avg_meters = {'loss': AverageMeter(),
-                 'iou': AverageMeter(),
-                 'dice': AverageMeter(),
-                 'accuracy': AverageMeter()}
-    
+                  'iou': AverageMeter(),
+                  'dice': AverageMeter(),
+                  'accuracy': AverageMeter(),
+                  'recall': AverageMeter(),
+                  'specificity': AverageMeter(),
+                  'precision': AverageMeter()}
+
+    # switch to evaluate mode
     model.eval()
-    
+
     with torch.no_grad():
         pbar = tqdm(total=len(val_loader))
         for input, target, _ in val_loader:
             input = input.cuda()
             target = target.cuda()
-            
-            outputs = model(input)
-            
+
+            # compute output
             if config['deep_supervision']:
+                outputs = model(input)
                 loss = 0
                 for output in outputs:
-                    if output.shape[-2:] != target.shape[-2:]:
-                        output = F.interpolate(output, size=target.shape[-2:],
-                                             mode='bilinear', align_corners=True)
                     loss += criterion(output, target)
                 loss /= len(outputs)
                 output = outputs[-1]
+
             else:
-                loss = criterion(outputs, target)
-                output = outputs
-            
-            # Compute metrics
-            iou, dice, _ = iou_score(output, target)
-            iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_ = indicators(output, target)
-            
+                output = model(input)
+                loss = criterion(output, target)
+
+            # Get all metrics at once
+            iou, dice, recall, specificity, precision, accuracy = indicators(output, target)
+
             avg_meters['loss'].update(loss.item(), input.size(0))
             avg_meters['iou'].update(iou, input.size(0))
             avg_meters['dice'].update(dice, input.size(0))
-            avg_meters['accuracy'].update(accuracy_, input.size(0))
-            
-            pbar.set_postfix(OrderedDict([
-                ('loss', avg_meters['loss'].avg),
-                ('iou', avg_meters['iou'].avg),
-                ('dice', avg_meters['dice'].avg),
-                ('accuracy', avg_meters['accuracy'].avg)
-            ]))
+            avg_meters['accuracy'].update(accuracy, input.size(0))
+            avg_meters['recall'].update(recall, input.size(0))
+            avg_meters['specificity'].update(specificity, input.size(0))
+            avg_meters['precision'].update(precision, input.size(0))
+
+            postfix = OrderedDict([
+                ('l', avg_meters['loss'].avg),
+                ('i', avg_meters['iou'].avg),
+                ('dc', avg_meters['dice'].avg),
+                ('acc', avg_meters['accuracy'].avg)  # Add accuracy to postfix
+            ])
+
+            pbar.set_postfix(postfix)
             pbar.update(1)
         pbar.close()
-    
-    return OrderedDict([
-        ('loss', avg_meters['loss'].avg),
-        ('iou', avg_meters['iou'].avg),
-        ('dice', avg_meters['dice'].avg),
-        ('accuracy', avg_meters['accuracy'].avg)
-    ])
+
+
+    return OrderedDict([('loss', avg_meters['loss'].avg),
+                        ('iou', avg_meters['iou'].avg),
+                        ('dice', avg_meters['dice'].avg),
+                        ('accuracy', avg_meters['accuracy'].avg),
+                        ('recall', avg_meters['recall'].avg),
+                        ('specificity', avg_meters['specificity'].avg),
+                        ('precision', avg_meters['precision'].avg)])
 
 def log_training_images(writer, train_loader, num_images=4, global_step=0):
     """
@@ -304,6 +332,19 @@ def seed_torch(seed=1029):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
+def count_parameters(model):
+    """Count and display trainable parameters using PrettyTable"""
+    table = PrettyTable(["Module", "Parameters"])
+    total_params = 0
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            param_count = param.numel()
+            table.add_row([name, f"{param_count:,}"])
+            total_params += param_count
+    print(table)
+    print(f"Total Trainable Parameters: {total_params:,}")
+    return total_params
+
 def main():
     seed_torch()
     config = vars(parse_args())
@@ -340,6 +381,11 @@ def main():
     # create model
     model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
 
+
+    # Count parameters and print PrettyTable
+    total_params = count_parameters(model)
+    config['total_params'] = total_params  # Store in config for yaml
+
     #FOR 1 GPUs
     # model = model.cuda()
 
@@ -350,7 +396,8 @@ def main():
       model = torch.nn.DataParallel(model)
     model = model.cuda()  # Move to CUDA
 
-    # model.load_state_dict(torch.load('/kaggle/input/checkpoint120-50/model.pth'))
+    # model.load_state_dict(torch.load('/kaggle/input/checkpoint60/model60.pth'))
+
 
     param_groups = []
 
@@ -367,7 +414,6 @@ def main():
             param_groups.append({'params': param, 'lr': config['lr'], 'weight_decay': config['weight_decay']})  
     
 
-    
     # st()
     if config['optimizer'] == 'Adam':
         optimizer = optim.Adam(param_groups)
@@ -390,16 +436,13 @@ def main():
     else:
         raise NotImplementedError
 
-    shutil.copy2('train.py', f'{output_dir}/{exp_name}/')
-    shutil.copy2('archs.py', f'{output_dir}/{exp_name}/')
 
     dataset_name = config['dataset']
 
-    if dataset_name == 'Teeth_Final' or 'DentalLast':
-       img_ext = '.JPG'  # Update for teeth dataset
-       mask_ext = '.png'
-
-
+    if dataset_name == 'Dental':
+       img_ext = '.JPG'       
+       mask_ext = '.jpg'
+    
     # Data loading code
     img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'images', '*' + img_ext)))
     img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
@@ -408,19 +451,21 @@ def main():
 
     train_transform = Compose([
         RandomRotate90(),
-        A.HorizontalFlip(),  # Flips image horizontally with 50% probability
-        A.VerticalFlip(),  # Flips image vertically with 50% probability
-
-        # geometric.transforms.Flip(),
-        # Resize(config['input_h'], config['input_w']),
+        A.HorizontalFlip(),
+        A.VerticalFlip(),
+        Resize(config['input_h'], config['input_w']),
+        A.ToGray(),
+        MedianBlur(blur_limit=3),  # Median filter (3x3 kernel)
+        CLAHE(clip_limit=2.0, tile_grid_size=(8, 8)),  # Add CLAHE here
         transforms.Normalize(),
-        # ToTensorV2(),  # Converts to PyTorch Tensor
     ])
 
     val_transform = Compose([
-        # Resize(config['input_h'], config['input_w']),
+        Resize(config['input_h'], config['input_w']),
+        A.ToGray(),
+        MedianBlur(blur_limit=3),  # Median filter (3x3 kernel)
+        CLAHE(clip_limit=2.0, tile_grid_size=(8, 8)),  # Add CLAHE here
         transforms.Normalize(),
-        # ToTensorV2(),  # Converts to PyTorch Tensor
     ])
 
     train_dataset = Dataset(
@@ -469,24 +514,24 @@ def main():
         ('val_accuracy', []),  # Add val_accuracy
     ])
 
-
     best_iou = 0
     best_dice= 0
     best_accuracy= 0
+    best_recall = 0
+    best_specificity = 0
+    best_precision = 0
     trigger = 0
+
     for epoch in range(config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
 
         # Log training images at the start of training
-        if epoch == 0:
+        if epoch % 10 == 0:
             log_training_images(my_writer, train_loader, global_step=epoch)
 
-        # train for one epoch
         train_log = train(config, train_loader, model, criterion, optimizer)
-        # evaluate on validation set
         val_log = validate(config, val_loader, model, criterion)
 
-        # Log validation images and predictions
         log_validation_images(my_writer, val_loader, model, global_step=epoch)
 
         if config['scheduler'] == 'CosineAnnealingLR':
@@ -494,9 +539,6 @@ def main():
         elif config['scheduler'] == 'ReduceLROnPlateau':
             scheduler.step(val_log['loss'])
 
-        # print('loss %.4f - iou %.4f - val_loss %.4f - val_iou %.4f'
-        #       % (train_log['loss'], train_log['iou'], val_log['loss'], val_log['iou']))
-        
         print('loss %.4f - iou %.4f - accuracy %.4f - val_loss %.4f - val_iou %.4f - val_accuracy %.4f'
               % (train_log['loss'], train_log['iou'], train_log['accuracy'], val_log['loss'], val_log['iou'], val_log['accuracy']))
 
@@ -527,26 +569,39 @@ def main():
         trigger += 1
 
         if val_log['iou'] > best_iou:
-            torch.save(model.state_dict(), f'{output_dir}/{exp_name}/model.pth')
+            checkpoint = {
+                'epoch': epoch,
+                'state_dict': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'best_iou': best_iou,
+                'best_dice': best_dice,
+                'best_accuracy': best_accuracy
+            }
+            torch.save(checkpoint, f'{output_dir}/{exp_name}/model.pth')
             best_accuracy = val_log['accuracy']
             best_iou = val_log['iou']
             best_dice = val_log['dice']
+            best_recall = val_log['recall']
+            best_specificity = val_log['specificity']
+            best_precision = val_log['precision']
+
             print("=> saved best model")
             print('Accuracy: %.4f' % best_accuracy)
             print('IoU: %.4f' % best_iou)
             print('Dice: %.4f' % best_dice)
+            print('Recall: %.4f' % best_recall)
+            print('specificity: %.4f' % best_specificity)
+            print('precision: %.4f' % best_precision)
             trigger = 0
 
-        # early stopping
-        # if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
-        #     print("=> early stopping")
-        #     break
 
         if config['early_stopping'] > 0 and trigger >= config['early_stopping']:
              print("=> early stopping")
              break
 
+        # Thorough memory cleanup
         torch.cuda.empty_cache()
+        gc.collect()
     
 if __name__ == '__main__':
     main()
