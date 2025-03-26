@@ -1,5 +1,6 @@
-import argparse
 import os
+import gc
+import argparse
 from collections import OrderedDict
 from glob import glob
 import random
@@ -161,17 +162,19 @@ def train(config, train_loader, model, criterion, optimizer):
             for output in outputs:
                 loss += criterion(output, target)
             loss /= len(outputs)
-
-            iou = iou_score(outputs[-1], target)
-            dice = dice_coef(outputs[-1], target)
-            # iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_ = indicators(outputs[-1], target)
+            output = outputs[-1]
             
         else:
             output = model(input)
             loss = criterion(output, target)
-            dice = dice_coef(output, target)
-            acccuracy = accuracy_score(output, target)
-            # iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_ = indicators(output, target)
+
+        # compute metrics
+        iou = iou_score(output, target)
+        dice = dice_coef(output, target)
+        accuracy = accuracy_score(output, target)
+
+        # If you need other metrics later:
+        # iou, dice, recall, specificity, precision, accuracy = indicators(output, target)
 
         # compute gradient and do optimizing step
         optimizer.zero_grad()
@@ -180,7 +183,7 @@ def train(config, train_loader, model, criterion, optimizer):
 
         avg_meters['loss'].update(loss.item(), input.size(0))
         avg_meters['iou'].update(iou, input.size(0))
-        avg_meters['accuracy'].update(accuracy_, input.size(0))  # Add accuracy update
+        avg_meters['accuracy'].update(accuracy, input.size(0))  # Add accuracy update
 
         postfix = OrderedDict([
             ('loss', avg_meters['loss'].avg),
@@ -217,19 +220,21 @@ def validate(config, val_loader, model, criterion):
                 for output in outputs:
                     loss += criterion(output, target)
                 loss /= len(outputs)
-                iou, dice, _ = iou_score(outputs[-1], target)
-                iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_ = indicators(outputs[-1], target)
+                output = outputs[-1]
 
             else:
                 output = model(input)
                 loss = criterion(output, target)
-                iou, dice, _ = iou_score(output, target)
-                iou_, dice_, hd_, hd95_, recall_, specificity_, precision_, accuracy_ = indicators(output, target)
+
+            # compute metrics
+            iou = iou_score(output, target)
+            dice = dice_coef(output, target)
+            accuracy = accuracy_score(output, target)
 
             avg_meters['loss'].update(loss.item(), input.size(0))
             avg_meters['iou'].update(iou, input.size(0))
             avg_meters['dice'].update(dice, input.size(0))
-            avg_meters['accuracy'].update(accuracy_, input.size(0))
+            avg_meters['accuracy'].update(accuracy, input.size(0))
 
             postfix = OrderedDict([
                 ('l', avg_meters['loss'].avg),
@@ -502,11 +507,11 @@ def main():
         ('val_accuracy', []),  # Add val_accuracy
     ])
 
-
     best_iou = 0
     best_dice= 0
     best_accuracy= 0
     trigger = 0
+
     for epoch in range(config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
 
@@ -527,9 +532,6 @@ def main():
         elif config['scheduler'] == 'ReduceLROnPlateau':
             scheduler.step(val_log['loss'])
 
-        # print('loss %.4f - iou %.4f - val_loss %.4f - val_iou %.4f'
-        #       % (train_log['loss'], train_log['iou'], val_log['loss'], val_log['iou']))
-        
         print('loss %.4f - iou %.4f - accuracy %.4f - val_loss %.4f - val_iou %.4f - val_accuracy %.4f'
               % (train_log['loss'], train_log['iou'], train_log['accuracy'], val_log['loss'], val_log['iou'], val_log['accuracy']))
 
@@ -560,7 +562,15 @@ def main():
         trigger += 1
 
         if val_log['iou'] > best_iou:
-            torch.save(model.state_dict(), f'{output_dir}/{exp_name}/model.pth')
+            checkpoint = {
+                'epoch': epoch,
+                'state_dict': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'best_iou': best_iou,
+                'best_dice': best_dice,
+                'best_accuracy': best_accuracy
+            }
+            torch.save(checkpoint, f'{output_dir}/{exp_name}/model.pth')
             best_accuracy = val_log['accuracy']
             best_iou = val_log['iou']
             best_dice = val_log['dice']
@@ -570,16 +580,14 @@ def main():
             print('Dice: %.4f' % best_dice)
             trigger = 0
 
-        # early stopping
-        # if config['early_stopping'] >= 0 and trigger >= config['early_stopping']:
-        #     print("=> early stopping")
-        #     break
 
         if config['early_stopping'] > 0 and trigger >= config['early_stopping']:
              print("=> early stopping")
              break
 
+        # Thorough memory cleanup
         torch.cuda.empty_cache()
+        gc.collect()
     
 if __name__ == '__main__':
     main()
