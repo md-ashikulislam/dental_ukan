@@ -1,60 +1,65 @@
 import torch
 import torch.nn.functional as F
 
-def iou_score(output, target):
-    smooth = 1e-5  # Prevents division by zero
-    output_ = (output > 0.5).float()  # Threshold at 0.5
-    target_ = (target > 0.5).float()
+def _to_float(x):
+    """Helper function to convert tensor to float"""
+    if isinstance(x, torch.Tensor):
+        return x.detach().cpu().item()
+    return float(x)
+
+def iou_score(output, target, threshold=0.5, smooth=1e-5):
+
+    output_ = (output > threshold).float()
+    target_ = (target > threshold).float()
     
     intersection = (output_ * target_).sum()
     union = output_.sum() + target_.sum() - intersection
     iou = (intersection + smooth) / (union + smooth)
     
-    return iou
+    return _to_float(iou)
 
+def dice_coef(output, target, threshold=0.5, smooth=1e-5):
 
-def dice_coef(output, target):
-    smooth = 1e-5
-    output = output.flatten()  # Flatten tensors
-    target = target.flatten()
+    output_ = (output > threshold).float().flatten()
+    target_ = (target > threshold).float().flatten()
     
-    intersection = (output * target).sum()
-    dice = (2. * intersection + smooth) / (output.sum() + target.sum() + smooth)
+    intersection = (output_ * target_).sum()
+    dice = (2. * intersection + smooth) / (output_.sum() + target_.sum() + smooth)
     
-    return dice
+    return _to_float(dice)
 
+def accuracy_score(output, target, threshold=0.5, smooth=1e-5):
 
-def accuracy_score(output, target):
-    smooth = 1e-5
-    output_ = (output > 0.5).float()
-    target_ = (target > 0.5).float()
+    output_ = (output > threshold).float()
+    target_ = (target > threshold).float()
     
     tp = (output_ * target_).sum()  # True positives
     tn = ((1 - output_) * (1 - target_)).sum()  # True negatives
     total = output_.numel()
     
     accuracy = (tp + tn + smooth) / (total + smooth)
-    return accuracy
+    return _to_float(accuracy)
 
+def indicators(output, target, threshold=0.5):
 
-def indicators(output, target):
-    output_ = (output > 0.5).float()  # Binary mask
-    target_ = (target > 0.5).float()
+    output_ = (output > threshold).float()
+    target_ = (target > threshold).float()
     
-    # Calculate TP, FP, FN, TN
+    # Calculate basic statistics
     tp = (output_ * target_).sum()
     fp = output_.sum() - tp
     fn = target_.sum() - tp
     tn = output_.numel() - (tp + fp + fn)
     
-    # Use existing functions for metrics
-    iou_ = iou_score(output, target)
-    dice_ = dice_coef(output, target)
-    accuracy_ = accuracy_score(output, target)
+    # Compute metrics
+    iou_ = iou_score(output, target, threshold)
+    dice_ = dice_coef(output, target, threshold)
+    accuracy_ = accuracy_score(output, target, threshold)
     
-    # Calculate remaining metrics
-    precision_ = tp / (tp + fp + 1e-5)
-    recall_ = tp / (tp + fn + 1e-5)
-    specificity_ = tn / (tn + fp + 1e-5)
+    # Calculate rates with smoothing
+    smooth = 1e-5
+    precision_ = _to_float(tp / (tp + fp + smooth))
+    recall_ = _to_float(tp / (tp + fn + smooth))
+    specificity_ = _to_float(tn / (tn + fp + smooth))
     
     return iou_, dice_, recall_, specificity_, precision_, accuracy_
