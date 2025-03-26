@@ -455,16 +455,16 @@ def main():
         A.VerticalFlip(),
         Resize(config['input_h'], config['input_w']),
         A.ToGray(),
-        MedianBlur(blur_limit=3, always_apply=True),  # Median filter (3x3 kernel)
-        CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), always_apply=True),  # Add CLAHE here
+        MedianBlur(blur_limit=3),  # Median filter (3x3 kernel)
+        CLAHE(clip_limit=2.0, tile_grid_size=(8, 8)),  # Add CLAHE here
         transforms.Normalize(),
     ])
 
     val_transform = Compose([
         Resize(config['input_h'], config['input_w']),
         A.ToGray(),
-        MedianBlur(blur_limit=3, always_apply=True),  # Median filter (3x3 kernel)
-        CLAHE(clip_limit=2.0, tile_grid_size=(8, 8), always_apply=True),  # Add CLAHE here
+        MedianBlur(blur_limit=3),  # Median filter (3x3 kernel)
+        CLAHE(clip_limit=2.0, tile_grid_size=(8, 8)),  # Add CLAHE here
         transforms.Normalize(),
     ])
 
