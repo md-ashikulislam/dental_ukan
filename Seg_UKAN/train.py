@@ -202,7 +202,10 @@ def validate(config, val_loader, model, criterion):
     avg_meters = {'loss': AverageMeter(),
                   'iou': AverageMeter(),
                   'dice': AverageMeter(),
-                  'accuracy': AverageMeter()}
+                  'accuracy': AverageMeter(),
+                  'recall': AverageMeter(),
+                  'specificity': AverageMeter(),
+                  'precision': AverageMeter()}
 
     # switch to evaluate mode
     model.eval()
@@ -226,15 +229,16 @@ def validate(config, val_loader, model, criterion):
                 output = model(input)
                 loss = criterion(output, target)
 
-            # compute metrics
-            iou = iou_score(output, target)
-            dice = dice_coef(output, target)
-            accuracy = accuracy_score(output, target)
+            # Get all metrics at once
+            iou, dice, recall, specificity, precision, accuracy = indicators(output, target)
 
             avg_meters['loss'].update(loss.item(), input.size(0))
             avg_meters['iou'].update(iou, input.size(0))
             avg_meters['dice'].update(dice, input.size(0))
             avg_meters['accuracy'].update(accuracy, input.size(0))
+            avg_meters['recall'].update(recall, input.size(0))
+            avg_meters['specificity'].update(specificity, input.size(0))
+            avg_meters['precision'].update(precision, input.size(0))
 
             postfix = OrderedDict([
                 ('l', avg_meters['loss'].avg),
@@ -251,7 +255,10 @@ def validate(config, val_loader, model, criterion):
     return OrderedDict([('loss', avg_meters['loss'].avg),
                         ('iou', avg_meters['iou'].avg),
                         ('dice', avg_meters['dice'].avg),
-                        ('accuracy', avg_meters['accuracy'].avg)])
+                        ('accuracy', avg_meters['accuracy'].avg),
+                        ('recall', avg_meters['recall'].avg),
+                        ('specificity', avg_meters['specificity'].avg),
+                        ('precision', avg_meters['precision'].avg)])
 
 def log_training_images(writer, train_loader, num_images=4, global_step=0):
     """
@@ -432,7 +439,7 @@ def main():
 
     dataset_name = config['dataset']
 
-    if dataset_name == 'Teeth':
+    if dataset_name == 'Dental':
        img_ext = '.JPG'       
        mask_ext = '.jpg'
     
@@ -510,21 +517,21 @@ def main():
     best_iou = 0
     best_dice= 0
     best_accuracy= 0
+    best_recall = 0
+    best_specificity = 0
+    best_precision = 0
     trigger = 0
 
     for epoch in range(config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
 
         # Log training images at the start of training
-        if epoch == 0:
+        if epoch % 10 == 0:
             log_training_images(my_writer, train_loader, global_step=epoch)
 
-        # train for one epoch
         train_log = train(config, train_loader, model, criterion, optimizer)
-        # evaluate on validation set
         val_log = validate(config, val_loader, model, criterion)
 
-        # Log validation images and predictions
         log_validation_images(my_writer, val_loader, model, global_step=epoch)
 
         if config['scheduler'] == 'CosineAnnealingLR':
@@ -574,10 +581,17 @@ def main():
             best_accuracy = val_log['accuracy']
             best_iou = val_log['iou']
             best_dice = val_log['dice']
+            best_recall = val_log['recall']
+            best_specificity = val_log['specificity']
+            best_precision = val_log['precision']
+
             print("=> saved best model")
             print('Accuracy: %.4f' % best_accuracy)
             print('IoU: %.4f' % best_iou)
             print('Dice: %.4f' % best_dice)
+            print('Recall: %.4f' % best_recall)
+            print('specificity: %.4f' % best_specificity)
+            print('precision: %.4f' % best_precision)
             trigger = 0
 
 
