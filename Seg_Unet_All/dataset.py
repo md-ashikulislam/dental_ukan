@@ -77,7 +77,7 @@ class Dataset(torch.utils.data.Dataset):
         img = img.astype('float32') / 255
         img = img.transpose(2, 0, 1)
         print(f"Image shape after transpose: {img.shape}")  # After transpose
-        
+
         mask = mask.astype('float32') / 255
         mask = mask.transpose(2, 0, 1)
 

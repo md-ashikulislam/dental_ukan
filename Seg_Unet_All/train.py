@@ -459,18 +459,18 @@ def main():
         A.HorizontalFlip(),
         A.VerticalFlip(),
         Resize(config['input_h'], config['input_w']),
-        A.ToGray(),
+        # A.ToGray(),
         MedianBlur(blur_limit=3),  # Median filter (3x3 kernel)
         CLAHE(clip_limit=2.0, tile_grid_size=(8, 8)),  # Add CLAHE here
-        transforms.Normalize(),
+        transforms.Normalize(mean=[0.5], std=[0.5]),
     ])
 
     val_transform = Compose([
         Resize(config['input_h'], config['input_w']),
-        A.ToGray(),
+        # A.ToGray(),
         MedianBlur(blur_limit=3),  # Median filter (3x3 kernel)
         CLAHE(clip_limit=2.0, tile_grid_size=(8, 8)),  # Add CLAHE here
-        transforms.Normalize(),
+        transforms.Normalize(mean=[0.5], std=[0.5]),
     ])
 
     train_dataset = Dataset(
