@@ -398,10 +398,10 @@ def main():
 
     # model.load_state_dict(torch.load('/kaggle/input/checkpoint171/model.pth'))
     # Load the checkpoint file first
-    checkpoint = torch.load('/kaggle/input/checkpoint171/model.pth')
+    # checkpoint = torch.load('/kaggle/input/checkpoint171/model.pth')
 
-    # Then load only the model state_dict
-    model.load_state_dict(checkpoint['state_dict'])
+    # # Then load only the model state_dict
+    # model.load_state_dict(checkpoint['state_dict'])
 
 
     param_groups = []
