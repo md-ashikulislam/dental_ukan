@@ -56,6 +56,7 @@ class Dataset(torch.utils.data.Dataset):
         img_id = self.img_ids[idx]
         
         img = cv2.imread(os.path.join(self.img_dir, img_id + self.img_ext))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  # Convert to RGB for consistency
         print(f"Raw image shape: {img.shape}")  # Before transformation
 
         mask = []
