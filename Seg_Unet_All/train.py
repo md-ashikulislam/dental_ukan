@@ -380,11 +380,18 @@ def main():
 
     cudnn.benchmark = True
 
-    # create model
-    # model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'])
-    model = archs.__dict__[config['arch']](
-    img_ch=config['input_channels'],
-    output_ch=config['num_classes'])
+
+    if config['arch'] in ['R2U_Net', 'R2AttU_Net']:
+        model = archs.__dict__[config['arch']](
+            img_ch=config['input_channels'],
+            output_ch=config['num_classes'],
+            t=config['t']
+        )
+    else:
+        model = archs.__dict__[config['arch']](
+            img_ch=config['input_channels'],
+            output_ch=config['num_classes']
+        )
 
 
     # Count parameters and print PrettyTable
