@@ -27,6 +27,7 @@ from albumentations import RandomRotate90, Resize
 from albumentations import MedianBlur
 
 import archs
+from archs import U_Net, R2U_Net, AttU_Net, R2AttU_Net
 
 import losses
 from dataset import Dataset
@@ -46,7 +47,7 @@ from pdb import set_trace as st
 
 
 from archs import UKAN  # Import the required model directly
-ARCH_NAMES = ['UKAN'] 
+ARCH_NAMES = ['UKAN', 'U_Net', 'R2U_Net', 'AttU_Net', 'R2AttU_Net']
 # ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
@@ -71,8 +72,8 @@ def parse_args():
                         help='')
     
     # model
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='UKAN')
-    
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='U_Net',
+                       choices=['U_Net', 'R2U_Net', 'AttU_Net', 'R2AttU_Net'])    
     parser.add_argument('--deep_supervision', default=False, type=str2bool)
     parser.add_argument('--input_channels', default=3, type=int,
                         help='input channels')
@@ -83,6 +84,8 @@ def parse_args():
     parser.add_argument('--input_h', default=256, type=int,
                         help='image height')
     parser.add_argument('--input_list', type=list_type, default=[128, 160, 256])
+    parser.add_argument('--t', default=2, type=int,
+                    help='number of recurrent steps for R2U-Net and R2AttU-Net')
 
     # loss
     parser.add_argument('--loss', default='BCEDiceLoss',
