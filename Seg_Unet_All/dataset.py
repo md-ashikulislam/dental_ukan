@@ -74,6 +74,10 @@ class Dataset(torch.utils.data.Dataset):
             img = augmented['image']
             mask = augmented['mask']
         print(f"Image shape after transform: {img.shape}")  # After transformation
+
+        # Ensure img has channel dimension
+        if len(img.shape) == 2:  # (H, W)
+            img = img[..., None]  # (H, W, 1)
         
         img = img.astype('float32') / 255
         img = img.transpose(2, 0, 1)
