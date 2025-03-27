@@ -383,7 +383,7 @@ def main():
     # create model
     # model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'])
     model = archs.__dict__[config['arch']](
-    img_ch=config['input_channels'],
+    img_ch=1,
     output_ch=config['num_classes'])
 
 
