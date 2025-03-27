@@ -395,8 +395,6 @@ class UKAN(nn.Module):
 
         return self.final(out)
 
-
-
 class Attention_block(nn.Module):
     def __init__(self, F_g, F_l, F_int):
         super(Attention_block, self).__init__()
@@ -419,9 +417,13 @@ class Attention_block(nn.Module):
         self.relu = nn.ReLU(inplace=True)
         
     def forward(self, g, x):
-        # Ensure input tensors are contiguous
+        # Ensure inputs are contiguous and properly aligned
         g = g.contiguous()
         x = x.contiguous()
+        
+        # Check and align spatial dimensions if needed
+        if g.shape[2:] != x.shape[2:]:
+            g = F.interpolate(g, size=x.shape[2:], mode='bilinear', align_corners=True)
         
         g1 = self.W_g(g)
         x1 = self.W_x(x)
@@ -484,30 +486,31 @@ class AttentionUKAN(nn.Module):
 
     def forward(self, x):
         B = x.shape[0]
+        x = x.contiguous()  # Ensure input is contiguous
 
         ### Encoder
         # Stage 1
         out = F.relu(F.max_pool2d(self.encoder1(x), 2, 2))  # Shape: (B, 32, H//2, W//2)
-        t1 = out
+        t1 = out.contiguous()
 
         # Stage 2
         out = F.relu(F.max_pool2d(self.encoder2(out), 2, 2))  # Shape: (B, 64, H//4, W//4)
-        t2 = out
+        t2 = out.contiguous()
 
         # Stage 3
         out = F.relu(F.max_pool2d(self.encoder3(out), 2, 2))  # Shape: (B, 256, H//8, W//8)
-        t3 = out
+        t3 = out.contiguous()
 
         # Stage 4 (Tokenized KAN)
-        out, H, W = self.patch_embed3(out)  # Shape: (B, N, 320)
+        out, H, W = self.patch_embed3(out)
         for i, blk in enumerate(self.block1):
             out = blk(out, H, W)
         out = self.norm3(out)
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()  # Shape: (B, 320, H//16, W//16)
-        t4 = out
+        t4 = out.contiguous()
 
         # Bottleneck
-        out, H, W = self.patch_embed4(out)  # Shape: (B, N, 512)
+        out, H, W = self.patch_embed4(out)
         for i, blk in enumerate(self.block2):
             out = blk(out, H, W)
         out = self.norm4(out)
@@ -515,43 +518,51 @@ class AttentionUKAN(nn.Module):
 
         ### Decoder with Attention Gates
         # Stage 4
-        out = F.relu(F.interpolate(self.decoder1(out), scale_factor=(2, 2), mode='bilinear', align_corners=True))  # Shape: (B, 320, H//16, W//16)
-        t4_att = self.att1(g=out, x=t4)  # Attention gate: modulate t4
-        out = torch.add(out, t4_att)
+        out = F.relu(F.interpolate(self.decoder1(out), scale_factor=(2, 2), mode='bilinear', align_corners=True))
+        out = out.contiguous()
+        t4_att = self.att1(g=out, x=t4)
+        out = torch.add(out, t4_att).contiguous()
+        
         _, _, H, W = out.shape
-        out = out.flatten(2).transpose(1, 2)
+        out = out.flatten(2).transpose(1, 2).contiguous()
         for i, blk in enumerate(self.dblock1):
             out = blk(out, H, W)
         out = self.dnorm3(out)
-        out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()  # Shape: (B, 320, H//16, W//16)
+        out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
 
         # Stage 3
-        out = F.relu(F.interpolate(self.decoder2(out), scale_factor=(2, 2), mode='bilinear', align_corners=True))  # Shape: (B, 256, H//8, W//8)
-        t3_att = self.att2(g=out, x=t3)  # Attention gate: modulate t3
-        out = torch.add(out, t3_att)
+        out = F.relu(F.interpolate(self.decoder2(out), scale_factor=(2, 2), mode='bilinear', align_corners=True))
+        out = out.contiguous()
+        t3_att = self.att2(g=out, x=t3)
+        out = torch.add(out, t3_att).contiguous()
+        
         _, _, H, W = out.shape
-        out = out.flatten(2).transpose(1, 2)
+        out = out.flatten(2).transpose(1, 2).contiguous()
         for i, blk in enumerate(self.dblock2):
             out = blk(out, H, W)
         out = self.dnorm4(out)
-        out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()  # Shape: (B, 256, H//8, W//8)
+        out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
 
         # Stage 2
-        out = F.relu(F.interpolate(self.decoder3(out), scale_factor=(2, 2), mode='bilinear', align_corners=True))  # Shape: (B, 64, H//4, W//4)
-        # Ensure t2 has the correct shape
-        if t2.size(2) != out.size(2) or t2.size(3) != out.size(3):
-            t2 = F.interpolate(t2, size=(out.size(2), out.size(3)), mode='bilinear', align_corners=True)
-        t2_att = self.att3(g=out, x=t2)  # Attention gate: modulate t2
-        out = torch.add(out, t2_att)
+        out = F.relu(F.interpolate(self.decoder3(out), scale_factor=(2, 2), mode='bilinear', align_corners=True))
+        out = out.contiguous()
+        # Ensure t2 matches spatial dimensions
+        if t2.shape[2:] != out.shape[2:]:
+            t2 = F.interpolate(t2, size=out.shape[2:], mode='bilinear', align_corners=True).contiguous()
+        t2_att = self.att3(g=out, x=t2)
+        out = torch.add(out, t2_att).contiguous()
 
         # Stage 1
-        out = F.relu(F.interpolate(self.decoder4(out), scale_factor=(2, 2), mode='bilinear', align_corners=True))  # Shape: (B, 32, H//2, W//2)
-        # Ensure t1 has the correct shape
-        if t1.size(2) != out.size(2) or t1.size(3) != out.size(3):
-            t1 = F.interpolate(t1, size=(out.size(2), out.size(3)), mode='bilinear', align_corners=True)
-        t1_att = self.att4(g=out, x=t1)  # Attention gate: modulate t1
-        out = torch.add(out, t1_att)
-        out = F.relu(F.interpolate(self.decoder5(out), scale_factor=(2, 2), mode='bilinear', align_corners=True))  # Shape: (B, 32, H, W)
+        out = F.relu(F.interpolate(self.decoder4(out), scale_factor=(2, 2), mode='bilinear', align_corners=True))
+        out = out.contiguous()
+        # Ensure t1 matches spatial dimensions
+        if t1.shape[2:] != out.shape[2:]:
+            t1 = F.interpolate(t1, size=out.shape[2:], mode='bilinear', align_corners=True).contiguous()
+        t1_att = self.att4(g=out, x=t1)
+        out = torch.add(out, t1_att).contiguous()
+        
+        out = F.relu(F.interpolate(self.decoder5(out), scale_factor=(2, 2), mode='bilinear', align_corners=True))
+        out = out.contiguous()
 
         # Final Output
         return self.final(out)
