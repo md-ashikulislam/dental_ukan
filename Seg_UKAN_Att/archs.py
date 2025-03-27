@@ -396,25 +396,30 @@ class UKAN(nn.Module):
         return self.final(out)
 
 
-# ========== Attention Gate Module ==========
-class AttentionGate(nn.Module):
+
+
+# Attention Gate from AttU_Net
+class Attention_block(nn.Module):
     def __init__(self, F_g, F_l, F_int):
-        super(AttentionGate, self).__init__()
+        super(Attention_block, self).__init__()
         self.W_g = nn.Sequential(
             nn.Conv2d(F_g, F_int, kernel_size=1, stride=1, padding=0, bias=True),
             nn.BatchNorm2d(F_int)
         )
+        
         self.W_x = nn.Sequential(
             nn.Conv2d(F_l, F_int, kernel_size=1, stride=1, padding=0, bias=True),
             nn.BatchNorm2d(F_int)
         )
+
         self.psi = nn.Sequential(
             nn.Conv2d(F_int, 1, kernel_size=1, stride=1, padding=0, bias=True),
             nn.BatchNorm2d(1),
             nn.Sigmoid()
         )
+        
         self.relu = nn.ReLU(inplace=True)
-    
+        
     def forward(self, g, x):
         g1 = self.W_g(g)
         x1 = self.W_x(x)
@@ -422,96 +427,124 @@ class AttentionGate(nn.Module):
         psi = self.psi(psi)
         return x * psi
 
-# ========== Modified UKAN with Attention ==========
+# Modified UKAN with Attention Gates
 class AttentionUKAN(nn.Module):
-    def __init__(self, num_classes, input_channels=3, img_size=224, embed_dims=[256, 320, 512], 
-                 no_kan=False, drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, depths=[1, 1, 1]):
+    def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, 
+                 embed_dims=[256, 320, 512], no_kan=False, drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, 
+                 depths=[1, 1, 1], **kwargs):
         super().__init__()
-        
+
+        kan_input_dim = embed_dims[0]
+
         # Encoder
-        self.encoder1 = ConvLayer(3, embed_dims[0]//8)
-        self.encoder2 = ConvLayer(embed_dims[0]//8, embed_dims[0]//4)
-        self.encoder3 = ConvLayer(embed_dims[0]//4, embed_dims[0])
+        self.encoder1 = ConvLayer(3, kan_input_dim//8)  # Output: 32 channels
+        self.encoder2 = ConvLayer(kan_input_dim//8, kan_input_dim//4)  # Output: 64 channels
+        self.encoder3 = ConvLayer(kan_input_dim//4, kan_input_dim)  # Output: 256 channels
 
-        # Attention Gates (Added at skip connections)
-        self.att_gate1 = AttentionGate(F_g=embed_dims[1], F_l=embed_dims[0], F_int=embed_dims[0]//2)
-        self.att_gate2 = AttentionGate(F_g=embed_dims[0], F_l=embed_dims[0]//4, F_int=embed_dims[0]//8)
+        self.norm3 = norm_layer(embed_dims[1])  # 320
+        self.norm4 = norm_layer(embed_dims[2])  # 512
+        self.dnorm3 = norm_layer(embed_dims[1])  # 320
+        self.dnorm4 = norm_layer(embed_dims[0])  # 256
 
-        # KAN Blocks (Original)
         dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
-        self.block1 = nn.ModuleList([KANBlock(dim=embed_dims[1], drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer)])
-        self.block2 = nn.ModuleList([KANBlock(dim=embed_dims[2], drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer)])
-        self.dblock1 = nn.ModuleList([KANBlock(dim=embed_dims[1], drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer)])
-        self.dblock2 = nn.ModuleList([KANBlock(dim=embed_dims[0], drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer)])
 
-        # Patch Embeddings
-        self.patch_embed3 = PatchEmbed(img_size=img_size//4, patch_size=3, stride=2, in_chans=embed_dims[0], embed_dim=embed_dims[1])
-        self.patch_embed4 = PatchEmbed(img_size=img_size//8, patch_size=3, stride=2, in_chans=embed_dims[1], embed_dim=embed_dims[2])
+        self.block1 = nn.ModuleList([KANBlock(
+            dim=embed_dims[1], drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer
+        )])
+        self.block2 = nn.ModuleList([KANBlock(
+            dim=embed_dims[2], drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer
+        )])
+        self.dblock1 = nn.ModuleList([KANBlock(
+            dim=embed_dims[1], drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer
+        )])
+        self.dblock2 = nn.ModuleList([KANBlock(
+            dim=embed_dims[0], drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer
+        )])
+
+        self.patch_embed3 = PatchEmbed(img_size=img_size // 4, patch_size=3, stride=2, in_chans=embed_dims[0], embed_dim=embed_dims[1])
+        self.patch_embed4 = PatchEmbed(img_size=img_size // 8, patch_size=3, stride=2, in_chans=embed_dims[1], embed_dim=embed_dims[2])
 
         # Decoder
-        self.decoder1 = D_ConvLayer(embed_dims[2], embed_dims[1])
-        self.decoder2 = D_ConvLayer(embed_dims[1], embed_dims[0])
-        self.decoder3 = D_ConvLayer(embed_dims[0], embed_dims[0]//4)
-        self.decoder4 = D_ConvLayer(embed_dims[0]//4, embed_dims[0]//8)
-        self.decoder5 = D_ConvLayer(embed_dims[0]//8, embed_dims[0]//8)
+        self.decoder1 = D_ConvLayer(embed_dims[2], embed_dims[1])  # 512 -> 320
+        self.decoder2 = D_ConvLayer(embed_dims[1], embed_dims[0])  # 320 -> 256
+        self.decoder3 = D_ConvLayer(embed_dims[0], embed_dims[0]//4)  # 256 -> 64
+        self.decoder4 = D_ConvLayer(embed_dims[0]//4, embed_dims[0]//8)  # 64 -> 32
+        self.decoder5 = D_ConvLayer(embed_dims[0]//8, embed_dims[0]//8)  # 32 -> 32
 
-        # Output
+        # Attention Gates
+        self.att1 = Attention_block(F_g=embed_dims[1], F_l=embed_dims[1], F_int=embed_dims[1]//2)  # 320, 320, 160
+        self.att2 = Attention_block(F_g=embed_dims[0], F_l=embed_dims[0], F_int=embed_dims[0]//2)  # 256, 256, 128
+        self.att3 = Attention_block(F_g=embed_dims[0]//4, F_l=kan_input_dim//4, F_int=(kan_input_dim//4)//2)  # 64, 64, 32
+        self.att4 = Attention_block(F_g=embed_dims[0]//8, F_l=kan_input_dim//8, F_int=(kan_input_dim//8)//2)  # 32, 32, 16
+
+        # Final Convolution
         self.final = nn.Conv2d(embed_dims[0]//8, num_classes, kernel_size=1)
-        
-        # Normalization layers
-        self.norm3 = norm_layer(embed_dims[1])
-        self.norm4 = norm_layer(embed_dims[2])
-        self.dnorm3 = norm_layer(embed_dims[1])
-        self.dnorm4 = norm_layer(embed_dims[0])
+        self.soft = nn.Softmax(dim=1)
 
     def forward(self, x):
         B = x.shape[0]
-        
-        # Encoder
-        e1 = F.relu(F.max_pool2d(self.encoder1(x), 2, 2))
-        e2 = F.relu(F.max_pool2d(self.encoder2(e1), 2, 2))
-        e3 = F.relu(F.max_pool2d(self.encoder3(e2), 2, 2))
 
-        # KAN Stages
-        t3, H3, W3 = self.patch_embed3(e3)
-        for blk in self.block1:
-            t3 = blk(t3, H3, W3)
-        t3 = self.norm3(t3)
-        t3 = t3.reshape(B, H3, W3, -1).permute(0, 3, 1, 2).contiguous()
+        ### Encoder
+        # Stage 1
+        out = F.relu(F.max_pool2d(self.encoder1(x), 2, 2))  # Shape: (B, 32, H//2, W//2)
+        t1 = out
+
+        # Stage 2
+        out = F.relu(F.max_pool2d(self.encoder2(out), 2, 2))  # Shape: (B, 64, H//4, W//4)
+        t2 = out
+
+        # Stage 3
+        out = F.relu(F.max_pool2d(self.encoder3(out), 2, 2))  # Shape: (B, 256, H//8, W//8)
+        t3 = out
+
+        # Stage 4 (Tokenized KAN)
+        out, H, W = self.patch_embed3(out)  # Shape: (B, N, 320)
+        for i, blk in enumerate(self.block1):
+            out = blk(out, H, W)
+        out = self.norm3(out)
+        out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()  # Shape: (B, 320, H//16, W//16)
+        t4 = out
 
         # Bottleneck
-        t4, H4, W4 = self.patch_embed4(t3)
-        for blk in self.block2:
-            t4 = blk(t4, H4, W4)
-        t4 = self.norm4(t4)
-        t4 = t4.reshape(B, H4, W4, -1).permute(0, 3, 1, 2).contiguous()
+        out, H, W = self.patch_embed4(out)  # Shape: (B, N, 512)
+        for i, blk in enumerate(self.block2):
+            out = blk(out, H, W)
+        out = self.norm4(out)
+        out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()  # Shape: (B, 512, H//32, W//32)
 
-        # Decoder with Attention Gates
-        d1 = F.relu(F.interpolate(self.decoder1(t4), scale_factor=(2,2), mode='bilinear'))
-        e3_att = self.att_gate1(g=d1, x=e3)  # Apply attention to skip connection
-        d1 = torch.add(d1, e3_att)
-        
-        d1 = d1.flatten(2).transpose(1,2)
-        for blk in self.dblock1:
-            d1 = blk(d1, H3, W3)
-        d1 = self.dnorm3(d1)
-        d1 = d1.reshape(B, H3, W3, -1).permute(0, 3, 1, 2).contiguous()
+        ### Decoder with Attention Gates
+        # Stage 4
+        out = F.relu(F.interpolate(self.decoder1(out), scale_factor=(2, 2), mode='bilinear'))  # Shape: (B, 320, H//16, W//16)
+        t4_att = self.att1(g=out, x=t4)  # Attention gate: modulate t4
+        out = torch.add(out, t4_att)
+        _, _, H, W = out.shape
+        out = out.flatten(2).transpose(1, 2)
+        for i, blk in enumerate(self.dblock1):
+            out = blk(out, H, W)
+        out = self.dnorm3(out)
+        out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()  # Shape: (B, 320, H//16, W//16)
 
-        d2 = F.relu(F.interpolate(self.decoder2(d1), scale_factor=(2,2), mode='bilinear'))
-        e2_att = self.att_gate2(g=d2, x=e2)  # Apply attention to skip connection
-        d2 = torch.add(d2, e2_att)
-        
-        d2 = d2.flatten(2).transpose(1,2)
-        for blk in self.dblock2:
-            d2 = blk(d2, *e2.shape[-2:])
-        d2 = self.dnorm4(d2)
-        d2 = d2.reshape(B, *e2.shape[-2:], -1).permute(0, 3, 1, 2).contiguous()
+        # Stage 3
+        out = F.relu(F.interpolate(self.decoder2(out), scale_factor=(2, 2), mode='bilinear'))  # Shape: (B, 256, H//8, W//8)
+        t3_att = self.att2(g=out, x=t3)  # Attention gate: modulate t3
+        out = torch.add(out, t3_att)
+        _, _, H, W = out.shape
+        out = out.flatten(2).transpose(1, 2)
+        for i, blk in enumerate(self.dblock2):
+            out = blk(out, H, W)
+        out = self.dnorm4(out)
+        out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()  # Shape: (B, 256, H//8, W//8)
 
-        # Final Decoder
-        out = F.relu(F.interpolate(self.decoder3(d2), scale_factor=(2,2), mode='bilinear'))
-        out = torch.add(out, e2)
-        out = F.relu(F.interpolate(self.decoder4(out), scale_factor=(2,2), mode='bilinear'))
-        out = torch.add(out, e1)
-        out = F.relu(F.interpolate(self.decoder5(out), scale_factor=(2,2), mode='bilinear'))
+        # Stage 2
+        out = F.relu(F.interpolate(self.decoder3(out), scale_factor=(2, 2), mode='bilinear'))  # Shape: (B, 64, H//4, W//4)
+        t2_att = self.att3(g=out, x=t2)  # Attention gate: modulate t2
+        out = torch.add(out, t2_att)
 
+        # Stage 1
+        out = F.relu(F.interpolate(self.decoder4(out), scale_factor=(2, 2), mode='bilinear'))  # Shape: (B, 32, H//2, W//2)
+        t1_att = self.att4(g=out, x=t1)  # Attention gate: modulate t1
+        out = torch.add(out, t1_att)
+        out = F.relu(F.interpolate(self.decoder5(out), scale_factor=(2, 2), mode='bilinear'))  # Shape: (B, 32, H, W)
+
+        # Final Output
         return self.final(out)
