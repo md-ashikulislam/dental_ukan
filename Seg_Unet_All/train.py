@@ -387,12 +387,15 @@ def main():
             output_ch=config['num_classes'],
             t=config['t']
         )
+        # Initialize weights for R2U_Net or R2AttU_Net
+        archs.init_weights(model, init_type='kaiming')  # or your preferred init_type
     else:
         model = archs.__dict__[config['arch']](
             img_ch=config['input_channels'],
             output_ch=config['num_classes']
         )
-
+        # Initialize weights for other architectures
+        archs.init_weights(model, init_type='kaiming')  # or your preferred init_type
 
     # Count parameters and print PrettyTable
     total_params = count_parameters(model)
