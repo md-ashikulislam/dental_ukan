@@ -56,6 +56,8 @@ class Dataset(torch.utils.data.Dataset):
         img_id = self.img_ids[idx]
         
         img = cv2.imread(os.path.join(self.img_dir, img_id + self.img_ext))
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # Convert to grayscale immediately
+        # print(f"Raw image shape: {img.shape}")  # Before transformation
 
         mask = []
         for i in range(self.num_classes):
@@ -71,9 +73,16 @@ class Dataset(torch.utils.data.Dataset):
             augmented = self.transform(image=img, mask=mask)
             img = augmented['image']
             mask = augmented['mask']
+        # print(f"Image shape after transform: {img.shape}")  # After transformation
+
+        # Ensure img has channel dimension
+        if len(img.shape) == 2:  # (H, W)
+            img = img[..., None]  # (H, W, 1)
         
         img = img.astype('float32') / 255
         img = img.transpose(2, 0, 1)
+        # print(f"Image shape after transpose: {img.shape}")  # After transpose
+
         mask = mask.astype('float32') / 255
         mask = mask.transpose(2, 0, 1)
 
