@@ -412,7 +412,7 @@ def main():
     model = model.cuda()  # Move to CUDA
 
     # Load the checkpoint
-    checkpoint = torch.load('/kaggle/input/checkpoint32/model32.pth')
+    checkpoint = torch.load('/kaggle/input/checkpoin32/model32.pth')
 
     model.load_state_dict(checkpoint['state_dict'])
     optimizer.load_state_dict(checkpoint['optimizer'])
