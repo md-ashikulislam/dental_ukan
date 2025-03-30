@@ -411,7 +411,11 @@ def main():
       model = torch.nn.DataParallel(model)
     model = model.cuda()  # Move to CUDA
 
-    # model.load_state_dict(torch.load('/kaggle/input/checkpoint60/model60.pth'))
+    # Load the checkpoint
+    checkpoint = torch.load('/kaggle/input/checkpoint32/model32.pth')
+
+    model.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
 
 
     param_groups = []
