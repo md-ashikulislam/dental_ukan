@@ -411,13 +411,6 @@ def main():
       model = torch.nn.DataParallel(model)
     model = model.cuda()  # Move to CUDA
 
-    # Load the checkpoint
-    checkpoint = torch.load('/kaggle/input/checkpoin32/model32.pth')
-
-    model.load_state_dict(checkpoint['state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
-
-
     param_groups = []
 
     kan_fc_params = []
@@ -442,6 +435,13 @@ def main():
         optimizer = optim.SGD(param_groups, lr=config['lr'], momentum=config['momentum'], nesterov=config['nesterov'], weight_decay=config['weight_decay'])
     else:
         raise NotImplementedError
+    
+        # Load the checkpoint
+    checkpoint = torch.load('/kaggle/input/checkpoin32/model32.pth')
+
+    model.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    
 
     if config['scheduler'] == 'CosineAnnealingLR':
         scheduler = lr_scheduler.CosineAnnealingLR(
