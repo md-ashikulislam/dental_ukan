@@ -12,26 +12,60 @@ from timm.layers import DropPath, to_2tuple, trunc_normal_
 import math
 from kan import KANLinear, KAN
 
-_all_ = ['UKAN_SE'] 
+_all_ = ['UKAN_SE_CBAM'] 
 
-# try spatial attention CBAM or make it hybrid with SE
-# Squeeze-and-Excitation Block
-class SEBlock(nn.Module):
-    def __init__(self, channel, reduction=4):
-        super(SEBlock, self).__init__()
+# Spatial Attention Module from CBAM
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super(SpatialAttention, self).__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size//2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        x = torch.cat([avg_out, max_out], dim=1)
+        x = self.conv(x)
+        return self.sigmoid(x)
+
+# Hybrid SE + CBAM Attention Block
+class HybridAttention(nn.Module):
+    def __init__(self, channel, reduction=4, kernel_size=7):
+        super(HybridAttention, self).__init__()
+        # SE components
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
         self.fc = nn.Sequential(
             nn.Linear(channel, channel // reduction, bias=False),
             nn.ReLU(inplace=True),
             nn.Linear(channel // reduction, channel, bias=False),
-            nn.Sigmoid()
         )
+        self.sigmoid = nn.Sigmoid()
+        
+        # Spatial attention component
+        self.spatial = SpatialAttention(kernel_size=kernel_size)
+        
+        # Learnable weights for combining channel and spatial attention
+        self.channel_weight = nn.Parameter(torch.ones(1))
+        self.spatial_weight = nn.Parameter(torch.ones(1))
 
     def forward(self, x):
-        b, c, _, _ = x.size()
-        y = self.avg_pool(x).view(b, c)
-        y = self.fc(y).view(b, c, 1, 1)
-        return x * y.expand_as(x)
+        b, c, h, w = x.size()
+        
+        # Channel attention (SE)
+        y_avg = self.avg_pool(x).view(b, c)
+        y_max = self.max_pool(x).view(b, c)
+        y = self.fc(y_avg) + self.fc(y_max)
+        y = self.sigmoid(y).view(b, c, 1, 1)
+        
+        # Spatial attention
+        z = self.spatial(x)
+        
+        # Combine with learnable weights
+        combined_attention = (self.channel_weight * y.expand_as(x) + 
+                             self.spatial_weight * z.expand_as(x))
+        
+        return x * combined_attention
 
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
@@ -91,9 +125,10 @@ class KANLayer(nn.Module):
             self.fc2 = nn.Linear(hidden_features, out_features)
             self.fc3 = nn.Linear(hidden_features, out_features)
         
-        self.se1 = SEBlock(hidden_features)
-        self.se2 = SEBlock(hidden_features)
-        self.se3 = SEBlock(hidden_features)
+        # Replace SE with HybridAttention
+        self.attn1 = HybridAttention(hidden_features)
+        self.attn2 = HybridAttention(hidden_features)
+        self.attn3 = HybridAttention(hidden_features)
 
         self.dwconv_1 = DW_bn_relu(hidden_features)
         self.dwconv_2 = DW_bn_relu(hidden_features)
@@ -122,17 +157,17 @@ class KANLayer(nn.Module):
 
         x = self.fc1(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
-        x = self.se1(x.reshape(B, C, H, W)).reshape(B, N, C)
+        x = self.attn1(x.reshape(B, C, H, W)).reshape(B, N, C)
         x = self.dwconv_1(x, H, W)
         
         x = self.fc2(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
-        x = self.se2(x.reshape(B, C, H, W)).reshape(B, N, C)
+        x = self.attn2(x.reshape(B, C, H, W)).reshape(B, N, C)
         x = self.dwconv_2(x, H, W)
         
         x = self.fc3(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
-        x = self.se3(x.reshape(B, C, H, W)).reshape(B, N, C)
+        x = self.attn3(x.reshape(B, C, H, W)).reshape(B, N, C)
         x = self.dwconv_3(x, H, W)
     
         return x
@@ -240,11 +275,12 @@ class ConvLayer(nn.Module):
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True)
         )
-        self.se = SEBlock(out_ch)
+        # Replace SE with HybridAttention
+        self.attn = HybridAttention(out_ch)
 
     def forward(self, input):
         x = self.conv(input)
-        x = self.se(x)
+        x = self.attn(x)
         return x
 
 class D_ConvLayer(nn.Module):
@@ -258,14 +294,15 @@ class D_ConvLayer(nn.Module):
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True)
         )
-        self.se = SEBlock(out_ch)
+        # Replace SE with HybridAttention
+        self.attn = HybridAttention(out_ch)
 
     def forward(self, input):
         x = self.conv(input)
-        x = self.se(x)
+        x = self.attn(x)
         return x
 
-class UKAN_SE(nn.Module):
+class UKAN_SE_CBAM(nn.Module):
     def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, 
                  embed_dims=[256, 320, 512], no_kan=False, drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, 
                  depths=[1, 1, 1], **kwargs):

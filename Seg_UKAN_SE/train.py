@@ -26,7 +26,10 @@ from tqdm import tqdm
 from albumentations import RandomRotate90, Resize
 from albumentations import MedianBlur
 
-import archs
+import archs,archs2
+
+from archs import _all_ as archs_all
+from archs2 import _all_ as archs2_all
 
 import losses
 from dataset import Dataset
@@ -45,9 +48,7 @@ import subprocess
 from pdb import set_trace as st
 
 
-from archs import UKAN_SE  # Import the required model directly
-ARCH_NAMES = ['UKAN_SE'] 
-# ARCH_NAMES = archs.__all__
+ARCH_NAMES = archs_all + archs2_all
 LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
 
@@ -379,18 +380,13 @@ def main():
     cudnn.benchmark = True
 
     # create model
-    model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
+    model = archs2.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
 
 
-    # Count parameters and print PrettyTable
     total_params = count_parameters(model)
     config['total_params'] = total_params  # Store in config for yaml
 
-    #FOR 1 GPUs
-    # model = model.cuda()
 
-    #FOR 2 GPUs
-    # Move model to multiple GPUs
     if torch.cuda.device_count() > 1:
       print(f"Using {torch.cuda.device_count()} GPUs!")
       model = torch.nn.DataParallel(model)
@@ -435,10 +431,10 @@ def main():
         raise NotImplementedError
     
     # Load the checkpoint
-    # checkpoint = torch.load('/kaggle/input/checkpoint250/model.pth')
+    checkpoint = torch.load('/kaggle/input/checkpoint140/model.pth')
 
-    # model.load_state_dict(checkpoint['state_dict'])
-    # optimizer.load_state_dict(checkpoint['optimizer'])
+    model.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
 
 
     dataset_name = config['dataset']
