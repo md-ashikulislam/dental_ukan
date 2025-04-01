@@ -12,7 +12,7 @@ from timm.layers import DropPath, to_2tuple, trunc_normal_
 import math
 
 from kan import KANLinear, KAN
-# try spatial attention CBAM
+# try spatial attention CBAM or make it hybrid with SE
 # Squeeze-and-Excitation Block
 class SEBlock(nn.Module):
     def __init__(self, channel, reduction=4):
