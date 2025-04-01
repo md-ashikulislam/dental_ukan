@@ -55,16 +55,10 @@ class Dataset(torch.utils.data.Dataset):
     def __getitem__(self, idx):
         img_id = self.img_ids[idx]
         
-        img = cv2.imread(os.path.join(self.img_dir, img_id + self.img_ext))
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)  # Convert to grayscale immediately
-        # print(f"Raw image shape: {img.shape}")  # Before transformation
+        img = cv2.imread(os.path.join(self.img_dir, img_id + self.img_ext), cv2.IMREAD_GRAYSCALE)  # Read as grayscale (H,W)
 
         mask = []
         for i in range(self.num_classes):
-
-            # print(os.path.join(self.mask_dir, str(i),
-            #             img_id + self.mask_ext))
-
             mask.append(cv2.imread(os.path.join(self.mask_dir, str(i),
                         img_id + self.mask_ext), cv2.IMREAD_GRAYSCALE)[..., None])
         mask = np.dstack(mask)
@@ -73,7 +67,6 @@ class Dataset(torch.utils.data.Dataset):
             augmented = self.transform(image=img, mask=mask)
             img = augmented['image']
             mask = augmented['mask']
-        # print(f"Image shape after transform: {img.shape}")  # After transformation
 
         # Ensure img has channel dimension
         if len(img.shape) == 2:  # (H, W)
@@ -81,7 +74,6 @@ class Dataset(torch.utils.data.Dataset):
         
         img = img.astype('float32') / 255
         img = img.transpose(2, 0, 1)
-        # print(f"Image shape after transpose: {img.shape}")  # After transpose
 
         mask = mask.astype('float32') / 255
         mask = mask.transpose(2, 0, 1)
