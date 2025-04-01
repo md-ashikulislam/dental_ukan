@@ -271,7 +271,7 @@ class UKAN_SE(nn.Module):
 
         kan_input_dim = embed_dims[0]
 
-        self.encoder1 = ConvLayer(3, kan_input_dim//8)  
+        self.encoder1 = ConvLayer(input_channels, kan_input_dim//8)  
         self.encoder2 = ConvLayer(kan_input_dim//8, kan_input_dim//4)  
         self.encoder3 = ConvLayer(kan_input_dim//4, kan_input_dim)
 
