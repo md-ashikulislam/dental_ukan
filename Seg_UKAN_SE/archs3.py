@@ -12,6 +12,8 @@ from timm.layers import DropPath, to_2tuple, trunc_normal_
 import math
 from kan import KANLinear, KAN
 
+_all_ = ['AttUKAN'] 
+
 # Attention Block from Attention U-Net
 class Attention_block(nn.Module):
     def __init__(self, F_g, F_l, F_int):
