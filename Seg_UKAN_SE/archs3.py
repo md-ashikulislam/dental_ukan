@@ -259,135 +259,65 @@ class D_ConvLayer(nn.Module):
         return self.conv(input)
 
 class AttUKAN(nn.Module):
-    def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, 
-                 embed_dims=[256, 320, 512], no_kan=False, drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, 
-                 depths=[1, 1, 1], **kwargs):
+    def __init__(self, num_classes, input_channels=3, img_size=224, embed_dims=[256, 320, 512], **kwargs):
         super().__init__()
-
-        kan_input_dim = embed_dims[0]
-
-        # Encoder
-        self.encoder1 = ConvLayer(input_channels, kan_input_dim//8)  # 3 -> 32
-        self.encoder2 = ConvLayer(kan_input_dim//8, kan_input_dim//4)  # 32 -> 64
-        self.encoder3 = ConvLayer(kan_input_dim//4, kan_input_dim)  # 64 -> 256
-
-        self.norm3 = norm_layer(embed_dims[1])
-        self.norm4 = norm_layer(embed_dims[2])
-        self.dnorm3 = norm_layer(embed_dims[1])
-        self.dnorm4 = norm_layer(embed_dims[0])
-
-        dpr = [x.item() for x in torch.linspace(0, drop_path_rate, sum(depths))]
-
-        self.block1 = nn.ModuleList([KANBlock(
-            dim=embed_dims[1], 
-            drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer
-        )])
-
-        self.block2 = nn.ModuleList([KANBlock(
-            dim=embed_dims[2],
-            drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer
-        )])
-
-        self.dblock1 = nn.ModuleList([KANBlock(
-            dim=embed_dims[1], 
-            drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer
-        )])
-
-        self.dblock2 = nn.ModuleList([KANBlock(
-            dim=embed_dims[0], 
-            drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer
-        )])
-
-        self.patch_embed3 = PatchEmbed(img_size=img_size // 4, patch_size=3, stride=2, in_chans=embed_dims[0], embed_dim=embed_dims[1])
-        self.patch_embed4 = PatchEmbed(img_size=img_size // 8, patch_size=3, stride=2, in_chans=embed_dims[1], embed_dim=embed_dims[2])
-
-        # Decoder with Attention Blocks
-        self.decoder1 = D_ConvLayer(embed_dims[2], embed_dims[1])  # 512 -> 320
-        self.att1 = Attention_block(F_g=embed_dims[1], F_l=embed_dims[1], F_int=embed_dims[1]//2)  # 320, 320, 160
-        self.decoder1_conv = D_ConvLayer(embed_dims[1]*2, embed_dims[1])  # 640 -> 320
-
-        self.decoder2 = D_ConvLayer(embed_dims[1], embed_dims[0])  # 320 -> 256
-        self.att2 = Attention_block(F_g=embed_dims[0], F_l=embed_dims[0], F_int=embed_dims[0]//2)  # 256, 256, 128
-        self.decoder2_conv = D_ConvLayer(embed_dims[0]*2, embed_dims[0])  # 512 -> 256
-
-        self.decoder3 = D_ConvLayer(embed_dims[0], embed_dims[0]//4)  # 256 -> 64
-        self.att3 = Attention_block(F_g=embed_dims[0]//4, F_l=embed_dims[0]//4, F_int=embed_dims[0]//8)  # 64, 64, 32
-        self.decoder3_conv = D_ConvLayer(embed_dims[0]//4*2, embed_dims[0]//4)  # 128 -> 64
-
-        self.decoder4 = D_ConvLayer(embed_dims[0]//4, embed_dims[0]//8)  # 64 -> 32
-        self.att4 = Attention_block(F_g=embed_dims[0]//8, F_l=embed_dims[0]//8, F_int=embed_dims[0]//16)  # 32, 32, 16
-        self.decoder4_conv = D_ConvLayer(embed_dims[0]//8*2, embed_dims[0]//8)  # 64 -> 32
-
-        self.decoder5 = D_ConvLayer(embed_dims[0]//8, embed_dims[0]//8)  # 32 -> 32
-
+        
+        # Encoder remains unchanged
+        self.encoder1 = ConvLayer(input_channels, embed_dims[0]//8)
+        self.encoder2 = ConvLayer(embed_dims[0]//8, embed_dims[0]//4)
+        self.encoder3 = ConvLayer(embed_dims[0]//4, embed_dims[0])
+        
+        # KAN Blocks
+        self.block1 = nn.ModuleList([KANBlock(dim=embed_dims[1])])
+        self.block2 = nn.ModuleList([KANBlock(dim=embed_dims[2])])
+        self.dblock1 = nn.ModuleList([KANBlock(dim=embed_dims[1])])
+        self.dblock2 = nn.ModuleList([KANBlock(dim=embed_dims[0])])
+        
+        # Patch Embeddings
+        self.patch_embed3 = PatchEmbed(img_size//4, 3, 2, embed_dims[0], embed_dims[1])
+        self.patch_embed4 = PatchEmbed(img_size//8, 3, 2, embed_dims[1], embed_dims[2])
+        
+        # Decoder with Attention-only
+        self.decoder1 = D_ConvLayer(embed_dims[2], embed_dims[1])
+        self.att1 = Attention_block(F_g=embed_dims[1], F_l=embed_dims[1], F_int=embed_dims[1]//2)
+        
+        self.decoder2 = D_ConvLayer(embed_dims[1], embed_dims[0])
+        self.att2 = Attention_block(F_g=embed_dims[0], F_l=embed_dims[0], F_int=embed_dims[0]//2)
+        
+        self.decoder3 = D_ConvLayer(embed_dims[0], embed_dims[0]//4)
+        self.att3 = Attention_block(F_g=embed_dims[0]//4, F_l=embed_dims[0]//4, F_int=embed_dims[0]//8)
+        
+        self.decoder4 = D_ConvLayer(embed_dims[0]//4, embed_dims[0]//8)
+        
         self.final = nn.Conv2d(embed_dims[0]//8, num_classes, kernel_size=1)
-        self.soft = nn.Softmax(dim=1)
 
     def forward(self, x):
         B = x.shape[0]
-        ### Encoder
-        ### Conv Stage
-        out = F.relu(F.max_pool2d(self.encoder1(x), 2, 2))  # 32
-        t1 = out
-        out = F.relu(F.max_pool2d(self.encoder2(out), 2, 2))  # 64
-        t2 = out
-        out = F.relu(F.max_pool2d(self.encoder3(out), 2, 2))  # 256
-        t3 = out
-
-        ### Tokenized KAN Stage
-        out, H, W = self.patch_embed3(out)  # 256 -> 320
-        for i, blk in enumerate(self.block1):
-            out = blk(out, H, W)
-        out = self.norm3(out)
-        out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
-        t4 = out  # 320
-
-        ### Bottleneck
-        out, H, W = self.patch_embed4(out)  # 320 -> 512
-        for i, blk in enumerate(self.block2):
-            out = blk(out, H, W)
-        out = self.norm4(out)
-        out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()  # 512
-
-        ### Decoder with Attention
-        # Stage 4
-        d4 = F.relu(F.interpolate(self.decoder1(out), scale_factor=(2,2), mode='bilinear'))  # 512 -> 320
-        t4 = self.att1(g=d4, x=t4)  # Attention on skip connection
-        d4 = torch.cat((t4, d4), dim=1)  # 320 + 320 = 640
-        d4 = self.decoder1_conv(d4)  # 640 -> 320
-        _, _, H, W = d4.shape
-        d4 = d4.flatten(2).transpose(1, 2)
-        for i, blk in enumerate(self.dblock1):
-            d4 = blk(d4, H, W)
-
-        # Stage 3
-        d3 = self.dnorm3(d4)
-        d3 = d3.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
-        d3 = F.relu(F.interpolate(self.decoder2(d3), scale_factor=(2,2), mode='bilinear'))  # 320 -> 256
-        t3 = self.att2(g=d3, x=t3)  # Attention on skip connection
-        d3 = torch.cat((t3, d3), dim=1)  # 256 + 256 = 512
-        d3 = self.decoder2_conv(d3)  # 512 -> 256
-        _, _, H, W = d3.shape
-        d3 = d3.flatten(2).transpose(1, 2)
-        for i, blk in enumerate(self.dblock2):
-            d3 = blk(d3, H, W)
-
-        # Stage 2
-        d2 = self.dnorm4(d3)
-        d2 = d2.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
-        d2 = F.relu(F.interpolate(self.decoder3(d2), scale_factor=(2,2), mode='bilinear'))  # 256 -> 64
-        t2 = self.att3(g=d2, x=t2)  # Attention on skip connection
-        d2 = torch.cat((t2, d2), dim=1)  # 64 + 64 = 128
-        d2 = self.decoder3_conv(d2)  # 128 -> 64
-
-        # Stage 1
-        d1 = F.relu(F.interpolate(self.decoder4(d2), scale_factor=(2,2), mode='bilinear'))  # 64 -> 32
-        t1 = self.att4(g=d1, x=t1)  # Attention on skip connection
-        d1 = torch.cat((t1, d1), dim=1)  # 32 + 32 = 64
-        d1 = self.decoder4_conv(d1)  # 64 -> 32
-
-        # Final Stage
-        out = F.relu(F.interpolate(self.decoder5(d1), scale_factor=(2,2), mode='bilinear'))  # 32 -> 32
-        out = self.final(out)  # 32 -> num_classes
-        return out
-
+        
+        # Encoder
+        x1 = F.max_pool2d(self.encoder1(x), 2, 2)  # /2
+        x2 = F.max_pool2d(self.encoder2(x1), 2, 2)  # /4
+        x3 = F.max_pool2d(self.encoder3(x2), 2, 2)  # /8
+        
+        # KAN Stages
+        x4, H4, W4 = self.patch_embed3(x3)
+        for blk in self.block1: x4 = blk(x4, H4, W4)
+        x4 = x4.reshape(B, H4, W4, -1).permute(0, 3, 1, 2)
+        
+        x5, H5, W5 = self.patch_embed4(x4)
+        for blk in self.block2: x5 = blk(x5, H5, W5)
+        x5 = x5.reshape(B, H5, W5, -1).permute(0, 3, 1, 2)
+        
+        # Decoder with Attention (no fusion)
+        d4 = F.interpolate(self.decoder1(x5), scale_factor=2, mode='bilinear')
+        d4 = self.att1(g=d4, x=x4)  # Attention only
+        
+        d3 = F.interpolate(self.decoder2(d4), scale_factor=2, mode='bilinear')
+        d3 = self.att2(g=d3, x=x3)  # Attention only
+        
+        d2 = F.interpolate(self.decoder3(d3), scale_factor=2, mode='bilinear')
+        d2 = self.att3(g=d2, x=x2)  # Attention only
+        
+        d1 = F.interpolate(self.decoder4(d2), scale_factor=2, mode='bilinear')
+        
+        return self.final(d1)
