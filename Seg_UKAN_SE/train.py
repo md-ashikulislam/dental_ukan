@@ -26,10 +26,11 @@ from tqdm import tqdm
 from albumentations import RandomRotate90, Resize
 from albumentations import MedianBlur
 
-import archs,archs2
+import archs,archs2,archs3
 
 from archs import _all_ as archs_all
 from archs2 import _all_ as archs2_all
+from archs3 import _all_ as archs3_all
 
 import losses
 from dataset import Dataset
@@ -48,7 +49,7 @@ import subprocess
 from pdb import set_trace as st
 
 
-ARCH_NAMES = archs_all + archs2_all
+ARCH_NAMES = archs_all + archs2_all + archs3_all
 LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
 
@@ -380,7 +381,7 @@ def main():
     cudnn.benchmark = True
 
     # create model
-    model = archs2.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
+    model = archs3.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
 
 
     total_params = count_parameters(model)
