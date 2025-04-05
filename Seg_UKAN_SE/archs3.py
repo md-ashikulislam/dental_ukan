@@ -14,25 +14,30 @@ from kan import KANLinear, KAN
 
 _all_ = ['UKAN_CBAM'] 
 # Pure CBAM Module (Channel + Spatial Attention)
-
 class ChannelAttention(nn.Module):
     def __init__(self, in_planes, ratio=16):
         super(ChannelAttention, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
         
-        self.fc1 = nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False)
+        # Replace Conv2d with Linear for channel reduction
+        self.fc1 = nn.Linear(in_planes, in_planes // ratio, bias=False)
         self.relu1 = nn.ReLU()
-        self.fc2 = nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False)
+        self.fc2 = nn.Linear(in_planes // ratio, in_planes, bias=False)
         
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        avg_out = self.fc2(self.relu1(self.fc1(self.avg_pool(x))))
-        max_out = self.fc2(self.relu1(self.fc1(self.max_pool(x))))
+        b, c, _, _ = x.size()
+        # Squeeze spatial dimensions and reshape for Linear layer
+        avg_out = self.avg_pool(x).view(b, c)
+        max_out = self.max_pool(x).view(b, c)
+        
+        avg_out = self.fc2(self.relu1(self.fc1(avg_out))).view(b, c, 1, 1)
+        max_out = self.fc2(self.relu1(self.fc1(max_out))).view(b, c, 1, 1)
+        
         out = avg_out + max_out
         return self.sigmoid(out)
-
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
         super(SpatialAttention, self).__init__()
@@ -49,7 +54,6 @@ class SpatialAttention(nn.Module):
         x = torch.cat([avg_out, max_out], dim=1)
         x = self.conv1(x)
         return self.sigmoid(x)
-
 class CBAM(nn.Module):
     def __init__(self, channel, reduction=16, spatial_kernel=7):
         super(CBAM, self).__init__()
@@ -60,7 +64,6 @@ class CBAM(nn.Module):
         x = x * self.channel_att(x)
         x = x * self.spatial_att(x)
         return x
-
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
         super().__init__()
