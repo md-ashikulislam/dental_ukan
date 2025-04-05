@@ -17,21 +17,17 @@ _all_ = ['UKAN_CBAM']
 class ChannelAttention(nn.Module):
     def __init__(self, in_planes, ratio=8):
         super(ChannelAttention, self).__init__()
+        hidden_planes = max(1, in_planes // ratio)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
 
         self.shared_MLP = nn.Sequential(
-            nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False),
+            nn.Conv2d(in_planes, hidden_planes, 1, bias=False),
             nn.ReLU(),
-            nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False)
+            nn.Conv2d(hidden_planes, in_planes, 1, bias=False)
         )
 
         self.sigmoid = nn.Sigmoid()
-
-    def forward(self, x):
-        avg_out = self.shared_MLP(self.avg_pool(x))
-        max_out = self.shared_MLP(self.max_pool(x))
-        return self.sigmoid(avg_out + max_out)
 
 class SpatialAttention(nn.Module):
     def __init__(self):
