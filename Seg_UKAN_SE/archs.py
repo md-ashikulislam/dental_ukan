@@ -14,7 +14,6 @@ from kan import KANLinear, KAN
 
 _all_ = ['UKAN_SE'] 
 
-# try spatial attention CBAM or make it hybrid with SE
 # Squeeze-and-Excitation Block
 class SEBlock(nn.Module):
     def __init__(self, channel, reduction=4):
@@ -91,13 +90,14 @@ class KANLayer(nn.Module):
             self.fc2 = nn.Linear(hidden_features, out_features)
             self.fc3 = nn.Linear(hidden_features, out_features)
         
+        self.dwconv_1 = DW_bn_relu(hidden_features)
+        self.dwconv_2 = DW_bn_relu(hidden_features)
+        self.dwconv_3 = DW_bn_relu(hidden_features)
+
         self.se1 = SEBlock(hidden_features)
         self.se2 = SEBlock(hidden_features)
         self.se3 = SEBlock(hidden_features)
 
-        self.dwconv_1 = DW_bn_relu(hidden_features)
-        self.dwconv_2 = DW_bn_relu(hidden_features)
-        self.dwconv_3 = DW_bn_relu(hidden_features)
         
         self.drop = nn.Dropout(drop)
         self.apply(self._init_weights)
@@ -122,19 +122,19 @@ class KANLayer(nn.Module):
 
         x = self.fc1(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
-        x = self.se1(x.reshape(B, C, H, W)).reshape(B, N, C)
         x = self.dwconv_1(x, H, W)
-        
+        x = self.se1(x.reshape(B, C, H, W)).reshape(B, N, C)
+
         x = self.fc2(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
-        x = self.se2(x.reshape(B, C, H, W)).reshape(B, N, C)
         x = self.dwconv_2(x, H, W)
+        x = self.se2(x.reshape(B, C, H, W)).reshape(B, N, C)
         
         x = self.fc3(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
-        x = self.se3(x.reshape(B, C, H, W)).reshape(B, N, C)
         x = self.dwconv_3(x, H, W)
-    
+        x = self.se3(x.reshape(B, C, H, W)).reshape(B, N, C)
+
         return x
 
 class KANBlock(nn.Module):
