@@ -110,7 +110,10 @@ class KANLayer(nn.Module):
     
     def forward(self, x, H, W):
         B, N, C = x.shape
-
+        print(f"Input shape: {x.shape}, Expected H: {H}, W: {W}")
+        x_reshaped = x.reshape(B, C, H, W)
+        print(f"Reshaped to: {x_reshaped.shape}")
+        x = self.cbam1(x_reshaped).reshape(B, N, C)
         # Layer 1
         x = self.fc1(x.reshape(B*N, C))
         x = x.reshape(B, N, C).contiguous()
