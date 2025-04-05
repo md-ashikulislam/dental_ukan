@@ -26,8 +26,13 @@ class ChannelAttention(nn.Module):
             nn.ReLU(),
             nn.Conv2d(hidden_planes, in_planes, 1, bias=False)
         )
-
         self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = self.shared_MLP(self.avg_pool(x))
+        max_out = self.shared_MLP(self.max_pool(x))
+        out = avg_out + max_out
+        return self.sigmoid(out)
 
 class SpatialAttention(nn.Module):
     def __init__(self):
@@ -43,14 +48,13 @@ class SpatialAttention(nn.Module):
         return self.sigmoid(x)
 
 class CBAM(nn.Module):
-    def __init__(self, in_planes, ratio=8):
+    def __init__(self, planes, ratio=8, kernel_size=7):
         super(CBAM, self).__init__()
-        self.ca = ChannelAttention(in_planes, ratio)
-        self.sa = SpatialAttention()
+        self.ca = ChannelAttention(planes, ratio)
+        self.sa = SpatialAttention(kernel_size)
 
     def forward(self, x):
         return self.sa(self.ca(x) * x) * x
-
 
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
