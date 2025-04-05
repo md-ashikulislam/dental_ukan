@@ -13,56 +13,49 @@ import math
 from kan import KANLinear, KAN
 
 _all_ = ['UKAN_CBAM'] 
-# Pure CBAM Module (Channel + Spatial Attention)
+
 class ChannelAttention(nn.Module):
-    def __init__(self, in_planes, ratio=16):
+    def __init__(self, in_planes, ratio=8):
         super(ChannelAttention, self).__init__()
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
-        
-        # Replace Conv2d with Linear for channel reduction
-        self.fc1 = nn.Linear(in_planes, in_planes // ratio, bias=False)
-        self.relu1 = nn.ReLU()
-        self.fc2 = nn.Linear(in_planes // ratio, in_planes, bias=False)
-        
+
+        self.shared_MLP = nn.Sequential(
+            nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False),
+            nn.ReLU(),
+            nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False)
+        )
+
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        b, c, _, _ = x.size()
-        # Squeeze spatial dimensions and reshape for Linear layer
-        avg_out = self.avg_pool(x).view(b, c)
-        max_out = self.max_pool(x).view(b, c)
-        
-        avg_out = self.fc2(self.relu1(self.fc1(avg_out))).view(b, c, 1, 1)
-        max_out = self.fc2(self.relu1(self.fc1(max_out))).view(b, c, 1, 1)
-        
-        out = avg_out + max_out
-        return self.sigmoid(out)
+        avg_out = self.shared_MLP(self.avg_pool(x))
+        max_out = self.shared_MLP(self.max_pool(x))
+        return self.sigmoid(avg_out + max_out)
+
 class SpatialAttention(nn.Module):
-    def __init__(self, kernel_size=7):
+    def __init__(self):
         super(SpatialAttention, self).__init__()
-        assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
-        padding = 3 if kernel_size == 7 else 1
-        
-        self.conv1 = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
+        self.conv = nn.Conv2d(2, 1, kernel_size=7, padding=3, bias=False)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        avg_out = torch.mean(x, dim=1, keepdim=True)  # [B, 1, H, W]
-        max_out, _ = torch.max(x, dim=1, keepdim=True)  # [B, 1, H, W]
-        x = torch.cat([avg_out, max_out], dim=1)  # [B, 2, H, W]
-        x = self.conv1(x)  # [B, 1, H, W]
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        x = torch.cat([avg_out, max_out], dim=1)
+        x = self.conv(x)
         return self.sigmoid(x)
+
 class CBAM(nn.Module):
-    def __init__(self, channel, reduction=16, spatial_kernel=7):
+    def __init__(self, in_planes, ratio=8):
         super(CBAM, self).__init__()
-        self.channel_att = ChannelAttention(channel, reduction)
-        self.spatial_att = SpatialAttention(spatial_kernel)
-    
+        self.ca = ChannelAttention(in_planes, ratio)
+        self.sa = SpatialAttention()
+
     def forward(self, x):
-        x = x * self.channel_att(x)
-        x = x * self.spatial_att(x)
-        return x
+        return self.sa(self.ca(x) * x) * x
+
+
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
         super().__init__()
@@ -109,27 +102,27 @@ class KANLayer(nn.Module):
     
     def forward(self, x, H, W):
         B, N, C = x.shape
-        print(f"Input shape: {x.shape}, Expected H: {H}, W: {W}")
-        x_reshaped = x.reshape(B, C, H, W)
-        print(f"Reshaped to: {x_reshaped.shape}")
-        x = self.cbam1(x_reshaped).reshape(B, N, C)
-        # Layer 1
-        x = self.fc1(x.reshape(B*N, C))
-        x = x.reshape(B, N, C).contiguous()
+
+        x = self.fc1(x.reshape(B*N,C))
+        x = x.reshape(B,N,C).contiguous()
         x = self.dwconv_1(x, H, W)
-        x = self.cbam1(x.reshape(B, C, H, W)).reshape(B, N, C)  # Apply CBAM
-        
-        # Layer 2
-        x = self.fc2(x.reshape(B*N, C))
-        x = x.reshape(B, N, C).contiguous()
+        x = x.transpose(1, 2).view(B, C, H, W)
+        x = self.cbam1(x)
+        x = x.flatten(2).transpose(1, 2)
+
+        x = self.fc2(x.reshape(B*N,C))
+        x = x.reshape(B,N,C).contiguous()
         x = self.dwconv_2(x, H, W)
-        x = self.cbam2(x.reshape(B, C, H, W)).reshape(B, N, C)  # Apply CBAM
-     
-        # Layer 3
-        x = self.fc3(x.reshape(B*N, C))
-        x = x.reshape(B, N, C).contiguous()
+        x = x.transpose(1, 2).view(B, C, H, W)
+        x = self.cbam2(x)
+        x = x.flatten(2).transpose(1, 2)
+
+        x = self.fc3(x.reshape(B*N,C))
+        x = x.reshape(B,N,C).contiguous()
         x = self.dwconv_3(x, H, W)
-        x = self.cbam3(x.reshape(B, C, H, W)).reshape(B, N, C)  # Apply CBAM
+        x = x.transpose(1, 2).view(B, C, H, W)
+        x = self.cbam3(x)
+        x = x.flatten(2).transpose(1, 2)
 
         return x
     
