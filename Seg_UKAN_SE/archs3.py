@@ -29,18 +29,38 @@ class CoordAttention(nn.Module):
 
     def forward(self, x):
         b, c, h, w = x.size()
-        x_h = self.pool_h(x)
-        x_w = self.pool_w(x)
-        y = torch.cat([x_h, x_w], dim=2)
+        
+        x_h = self.pool_h(x)  # (B, C, H, 1)
+        x_w = self.pool_w(x)  # (B, C, 1, W)
+        
+        x_h = x_h.squeeze(3).transpose(1, 2)  # (B, H, C)
+        x_w = x_w.squeeze(2).transpose(1, 2)  # (B, W, C)
+        
+        max_len = max(h, w)
+        if h < max_len:
+            x_h = F.pad(x_h, (0, 0, 0, max_len - h))
+        if w < max_len:
+            x_w = F.pad(x_w, (0, 0, 0, max_len - w))
+        
+        y = torch.cat([x_h, x_w], dim=2)  # (B, max(H,W), 2*C)
+        y = y.transpose(1, 2).unsqueeze(3)  # (B, 2*C, max(H,W), 1)
+        
         y = self.conv1(y)
         y = self.bn(y)
         y = self.act(y)
-        x_h, x_w = torch.split(y, [h, w], dim=2)
-        a_h = self.conv_h(x_h)
-        a_w = self.conv_w(x_w)
+        
+        x_h, x_w = torch.split(y, [c, c], dim=1)
+        
+        x_h = x_h.squeeze(3).transpose(1, 2)[:h]  # (B, H, C)
+        x_w = x_w.squeeze(3).transpose(1, 2)[:w]  # (B, W, C)
+        
+        a_h = self.conv_h(x_h.transpose(1, 2).unsqueeze(3))  # (B, C, H, 1)
+        a_w = self.conv_w(x_w.transpose(1, 2).unsqueeze(2))  # (B, C, 1, W)
         a_h = self.sigmoid(a_h)
         a_w = self.sigmoid(a_w)
-        return x * a_h * a_w
+        
+        out = x * a_h * a_w
+        return out
 
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
@@ -100,7 +120,6 @@ class KANLayer(nn.Module):
             self.fc2 = nn.Linear(hidden_features, out_features)
             self.fc3 = nn.Linear(hidden_features, out_features)
 
-        # Add Coordinate Attention after each DW convolution
         self.ca1 = CoordAttention(hidden_features)
         self.ca2 = CoordAttention(hidden_features)
         self.ca3 = CoordAttention(hidden_features)
@@ -164,7 +183,7 @@ class ConvLayer(nn.Module):
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True)
         )
-        self.ca = CoordAttention(out_ch)  # Add Coordinate Attention
+        self.ca = CoordAttention(out_ch)
 
     def forward(self, input):
         x = self.conv(input)
@@ -182,14 +201,13 @@ class D_ConvLayer(nn.Module):
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True)
         )
-        self.ca = CoordAttention(out_ch)  # Add Coordinate Attention
+        self.ca = CoordAttention(out_ch)
 
     def forward(self, input):
         x = self.conv(input)
         x = self.ca(x)
         return x
 
-# The rest of the code remains unchanged
 class KANBlock(nn.Module):
     def __init__(self, dim, drop=0., drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, no_kan=False):
         super().__init__()
@@ -335,8 +353,6 @@ class UKAN_CA(nn.Module):
 
     def forward(self, x):
         B = x.shape[0]
-        ### Encoder
-        ### Conv Stage
         out = F.relu(F.max_pool2d(self.encoder1(x), 2, 2))
         t1 = out
         out = F.relu(F.max_pool2d(self.encoder2(out), 2, 2))
@@ -344,7 +360,6 @@ class UKAN_CA(nn.Module):
         out = F.relu(F.max_pool2d(self.encoder3(out), 2, 2))
         t3 = out
 
-        ### Tokenized KAN Stage
         out, H, W = self.patch_embed3(out)
         for i, blk in enumerate(self.block1):
             out = blk(out, H, W)
@@ -352,14 +367,12 @@ class UKAN_CA(nn.Module):
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         t4 = out
 
-        ### Bottleneck
         out, H, W = self.patch_embed4(out)
         for i, blk in enumerate(self.block2):
             out = blk(out, H, W)
         out = self.norm4(out)
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
 
-        ### Decoder
         out = F.relu(F.interpolate(self.decoder1(out), scale_factor=(2, 2), mode='bilinear'))
         out = torch.add(out, t4)
         _, _, H, W = out.shape
