@@ -6,25 +6,23 @@ import math
 
 _all_ = ['UKAN_CBAM'] 
 
+import torch
+from torch import nn
+import torchvision
+from torch.autograd import Variable
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from torchvision.utils import save_image
+import torch.nn.functional as F
+import os
+import matplotlib.pyplot as plt
+from timm.layers import DropPath, to_2tuple, trunc_normal_
+import math
+from kan import KANLinear, KAN
 
-class ChannelAttention(nn.Module):
-    def __init__(self, in_channels, reduction_ratio=4):
-        super(ChannelAttention, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(1)
-        self.max_pool = nn.AdaptiveMaxPool2d(1)
-        self.fc = nn.Sequential(
-            nn.Conv2d(in_channels, in_channels // reduction_ratio, 1, bias=False),
-            nn.ReLU(),
-            nn.Conv2d(in_channels // reduction_ratio, in_channels, 1, bias=False)
-        )
-        self.sigmoid = nn.Sigmoid()
+_all_ = ['UKAN_CBAM'] 
 
-    def forward(self, x):
-        avg_out = self.fc(self.avg_pool(x))
-        max_out = self.fc(self.max_pool(x))
-        out = avg_out + max_out
-        return self.sigmoid(out)
-
+# Spatial Attention Module from CBAM (unchanged)
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
         super(SpatialAttention, self).__init__()
@@ -38,46 +36,68 @@ class SpatialAttention(nn.Module):
         x = self.conv(x)
         return self.sigmoid(x)
 
-class CBAMAttention(nn.Module):
-    def __init__(self, channel, reduction_ratio=4, kernel_size=7):
-        super(CBAMAttention, self).__init__()
-        self.channel_att = ChannelAttention(channel, reduction_ratio)
-        self.spatial_att = SpatialAttention(kernel_size)
-
-    def forward(self, x):
-        x = x * self.channel_att(x)
-        x = x * self.spatial_att(x)
-        return x
-
-class DW_bn_relu(nn.Module):
-    def __init__(self, dim=768):
-        super(DW_bn_relu, self).__init__()
-        self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
-        self.bn = nn.BatchNorm2d(dim)
-        self.relu = nn.ReLU()
-
-    def forward(self, x, H, W):
-        B, N, C = x.shape
-        x = x.transpose(1, 2).view(B, C, H, W)
-        x = self.dwconv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        x = x.flatten(2).transpose(1, 2)
-        return x
-
 class KANLayer(nn.Module):
-    def __init__(self, in_features, hidden_features=None, out_features=None, drop=0., no_kan=False):
+    def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
+        self.dim = in_features
         
-        self.fc1 = nn.Linear(in_features, hidden_features)
-        self.fc2 = nn.Linear(hidden_features, out_features)
-        self.fc3 = nn.Linear(hidden_features, out_features)
+        grid_size=5
+        spline_order=3
+        scale_noise=0.1
+        scale_base=1.0
+        scale_spline=1.0
+        base_activation=torch.nn.SiLU
+        grid_eps=0.02
+        grid_range=[-1, 1]
+
+        if not no_kan:
+            self.fc1 = KANLinear(
+                in_features,
+                hidden_features,
+                grid_size=grid_size,
+                spline_order=spline_order,
+                scale_noise=scale_noise,
+                scale_base=scale_base,
+                scale_spline=scale_spline,
+                base_activation=base_activation,
+                grid_eps=grid_eps,
+                grid_range=grid_range,
+            )
+            self.fc2 = KANLinear(
+                hidden_features,
+                out_features,
+                grid_size=grid_size,
+                spline_order=spline_order,
+                scale_noise=scale_noise,
+                scale_base=scale_base,
+                scale_spline=scale_spline,
+                base_activation=base_activation,
+                grid_eps=grid_eps,
+                grid_range=grid_range,
+            )
+            self.fc3 = KANLinear(
+                hidden_features,
+                out_features,
+                grid_size=grid_size,
+                spline_order=spline_order,
+                scale_noise=scale_noise,
+                scale_base=scale_base,
+                scale_spline=scale_spline,
+                base_activation=base_activation,
+                grid_eps=grid_eps,
+                grid_range=grid_range,
+            )
+        else:
+            self.fc1 = nn.Linear(in_features, hidden_features)
+            self.fc2 = nn.Linear(hidden_features, out_features)
+            self.fc3 = nn.Linear(hidden_features, out_features)
         
-        self.attn1 = CBAMAttention(hidden_features)
-        self.attn2 = CBAMAttention(hidden_features)
-        self.attn3 = CBAMAttention(hidden_features)
+        # Replace HybridAttention with just SpatialAttention
+        self.attn1 = SpatialAttention()
+        self.attn2 = SpatialAttention()
+        self.attn3 = SpatialAttention()
 
         self.dwconv_1 = DW_bn_relu(hidden_features)
         self.dwconv_2 = DW_bn_relu(hidden_features)
@@ -104,21 +124,86 @@ class KANLayer(nn.Module):
     def forward(self, x, H, W):
         B, N, C = x.shape
 
-        x = self.fc1(x.reshape(B*N, C))
-        x = x.reshape(B, N, C).contiguous()
-        x = self.attn1(x.reshape(B, C, H, W)).reshape(B, N, C)
+        x = self.fc1(x.reshape(B*N,C))
+        x = x.reshape(B,N,C).contiguous()
+        x = x.reshape(B, C, H, W)
+        attn_weights = self.attn1(x)
+        x = x * attn_weights
+        x = x.reshape(B, N, C)
         x = self.dwconv_1(x, H, W)
         
-        x = self.fc2(x.reshape(B*N, C))
-        x = x.reshape(B, N, C).contiguous()
-        x = self.attn2(x.reshape(B, C, H, W)).reshape(B, N, C)
+        x = self.fc2(x.reshape(B*N,C))
+        x = x.reshape(B,N,C).contiguous()
+        x = x.reshape(B, C, H, W)
+        attn_weights = self.attn2(x)
+        x = x * attn_weights
+        x = x.reshape(B, N, C)
         x = self.dwconv_2(x, H, W)
         
-        x = self.fc3(x.reshape(B*N, C))
-        x = x.reshape(B, N, C).contiguous()
-        x = self.attn3(x.reshape(B, C, H, W)).reshape(B, N, C)
+        x = self.fc3(x.reshape(B*N,C))
+        x = x.reshape(B,N,C).contiguous()
+        x = x.reshape(B, C, H, W)
+        attn_weights = self.attn3(x)
+        x = x * attn_weights
+        x = x.reshape(B, N, C)
         x = self.dwconv_3(x, H, W)
     
+        return x
+
+# Rest of the imports and classes remain the same until ConvLayer and D_ConvLayer
+class ConvLayer(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super(ConvLayer, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True)
+        )
+        # Replace HybridAttention with SpatialAttention
+        self.attn = SpatialAttention()
+
+    def forward(self, input):
+        x = self.conv(input)
+        attn_weights = self.attn(x)
+        x = x * attn_weights
+        return x
+
+class D_ConvLayer(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super(D_ConvLayer, self).__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_ch, in_ch, 3, padding=1),
+            nn.BatchNorm2d(in_ch),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True)
+        )
+        # Replace HybridAttention with SpatialAttention
+        self.attn = SpatialAttention()
+
+    def forward(self, input):
+        x = self.conv(input)
+        attn_weights = self.attn(x)
+        x = x * attn_weights
+        return x
+class DW_bn_relu(nn.Module):
+    def __init__(self, dim=768):
+        super(DW_bn_relu, self).__init__()
+        self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
+        self.bn = nn.BatchNorm2d(dim)
+        self.relu = nn.ReLU()
+
+    def forward(self, x, H, W):
+        B, N, C = x.shape
+        x = x.transpose(1, 2).view(B, C, H, W)
+        x = self.dwconv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        x = x.flatten(2).transpose(1, 2)
         return x
 
 class KANBlock(nn.Module):
@@ -184,42 +269,6 @@ class PatchEmbed(nn.Module):
         x = x.flatten(2).transpose(1, 2)
         x = self.norm(x)
         return x, H, W
-
-class ConvLayer(nn.Module):
-    def __init__(self, in_ch, out_ch):
-        super(ConvLayer, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
-        )
-        self.attn = CBAMAttention(out_ch)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.attn(x)
-        return x
-
-class D_ConvLayer(nn.Module):
-    def __init__(self, in_ch, out_ch):
-        super(D_ConvLayer, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
-        )
-        self.attn = CBAMAttention(out_ch)
-
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.attn(x)
-        return x
 
 class UKAN_CBAM(nn.Module):
     def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, 
