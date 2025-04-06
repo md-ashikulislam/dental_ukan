@@ -443,7 +443,7 @@ def main():
 
     dataset_name = config['dataset']
 
-    if dataset_name == 'Dental':
+    if dataset_name == 'Dental' or 'new_dataset':
        img_ext = '.JPG'       
        mask_ext = '.jpg'
     
