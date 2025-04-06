@@ -333,12 +333,20 @@ def visualize_single_sample(writer, model, val_loader, epoch):
     input_img = inputs[idx].unsqueeze(0).cuda()
     target_mask = targets[idx].unsqueeze(0).cuda()
     
+    
     # Get model output and activations
     model.eval()
     with torch.no_grad():
-        output, activations = model(input_img, return_activations=True)
+        # Handle DataParallel case
+        if isinstance(model, torch.nn.DataParallel):
+            # Get the underlying model
+            actual_model = model.module
+            output, activations = actual_model(input_img, return_activations=True)
+        else:
+            output, activations = model(input_img, return_activations=True)
+        
         output = torch.sigmoid(output)
-    
+        
     # Calculate metrics
     iou = iou_score(output, target_mask)
     dice = dice_coef(output, target_mask)
