@@ -121,14 +121,13 @@ class KANLayer(nn.Module):
             self.fc2 = nn.Linear(hidden_features, out_features)
             self.fc3 = nn.Linear(hidden_features, out_features)
 
-        self.dwconv_1 = DW_bn_relu(hidden_features)
-        self.dwconv_2 = DW_bn_relu(hidden_features)
-        self.dwconv_3 = DW_bn_relu(hidden_features)
-
         self.cbam1 = CBAM(hidden_features)
         self.cbam2 = CBAM(hidden_features)
         self.cbam3 = CBAM(hidden_features)
 
+        self.dwconv_1 = DW_bn_relu(hidden_features)
+        self.dwconv_2 = DW_bn_relu(hidden_features)
+        self.dwconv_3 = DW_bn_relu(hidden_features)
 
         self.drop = nn.Dropout(drop)
         self.apply(self._init_weights)
@@ -153,18 +152,18 @@ class KANLayer(nn.Module):
 
         x = self.fc1(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
-        x = self.dwconv_1(x, H, W)
         x = self.cbam1(x.reshape(B, C, H, W)).reshape(B, N, C)
+        x = self.dwconv_1(x, H, W)
 
         x = self.fc2(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
-        x = self.dwconv_2(x, H, W)
         x = self.cbam2(x.reshape(B, C, H, W)).reshape(B, N, C)
+        x = self.dwconv_2(x, H, W)
 
         x = self.fc3(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
-        x = self.dwconv_3(x, H, W)
         x = self.cbam3(x.reshape(B, C, H, W)).reshape(B, N, C)
+        x = self.dwconv_3(x, H, W)
 
         return x
 
