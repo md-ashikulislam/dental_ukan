@@ -383,7 +383,7 @@ def main():
     cudnn.benchmark = True
 
     # create model
-    model = archs3.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
+    model = archs4.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
 
 
     total_params = count_parameters(model)
