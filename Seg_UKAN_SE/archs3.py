@@ -1,68 +1,52 @@
 import torch
 from torch import nn
-import torchvision
-from torch.autograd import Variable
-from torch.utils.data import DataLoader
-from torchvision import transforms
-from torchvision.utils import save_image
 import torch.nn.functional as F
-import os
-import matplotlib.pyplot as plt
 from timm.layers import DropPath, to_2tuple, trunc_normal_
 import math
 from kan import KANLinear, KAN
 
-_all_ = ['UKAN_CA'] 
-
-class CoordAttention(nn.Module):
-    def __init__(self, in_channels, reduction=16):
-        super(CoordAttention, self).__init__()
+class CoordinatedAttention(nn.Module):
+    def __init__(self, in_channels, reduction_ratio=8):
+        super(CoordinatedAttention, self).__init__()
         self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
         self.pool_w = nn.AdaptiveAvgPool2d((1, None))
-        mid_channels = max(8, in_channels // reduction)
-        self.conv1 = nn.Conv2d(2 * in_channels, mid_channels, kernel_size=1, stride=1, padding=0)
-        self.bn = nn.BatchNorm2d(mid_channels)
+        
+        mid_channels = max(8, in_channels // reduction_ratio)
+        
+        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=1, stride=1, padding=0)
+        self.bn1 = nn.BatchNorm2d(mid_channels)
         self.act = nn.ReLU(inplace=True)
+        
         self.conv_h = nn.Conv2d(mid_channels, in_channels, kernel_size=1, stride=1, padding=0)
         self.conv_w = nn.Conv2d(mid_channels, in_channels, kernel_size=1, stride=1, padding=0)
         self.sigmoid = nn.Sigmoid()
-        self.mid_channels = mid_channels  # Store for use in forward
 
     def forward(self, x):
-        b, c, h, w = x.size()
+        identity = x
         
-        x_h = self.pool_h(x)  # (B, C, H, 1)
-        x_w = self.pool_w(x)  # (B, C, 1, W)
+        n, c, h, w = x.size()
         
-        x_h = x_h.squeeze(3).transpose(1, 2)  # (B, H, C)
-        x_w = x_w.squeeze(2).transpose(1, 2)  # (B, W, C)
+        # Horizontal pooling
+        x_h = self.pool_h(x)
+        # Vertical pooling
+        x_w = self.pool_w(x).permute(0, 1, 3, 2)
         
-        max_len = max(h, w)
-        if h < max_len:
-            x_h = F.pad(x_h, (0, 0, 0, max_len - h))
-        if w < max_len:
-            x_w = F.pad(x_w, (0, 0, 0, max_len - w))
-        
-        y = torch.cat([x_h, x_w], dim=2)  # (B, max(H,W), 2*C)
-        y = y.transpose(1, 2).unsqueeze(3)  # (B, 2*C, max(H,W), 1)
-        
-        y = self.conv1(y)  # (B, mid_channels, max(H,W), 1)
-        y = self.bn(y)
+        # Concatenate and transform
+        y = torch.cat([x_h, x_w], dim=2)
+        y = self.conv1(y)
+        y = self.bn1(y)
         y = self.act(y)
         
-        # Split into two parts, each with mid_channels
-        x_h, x_w = torch.split(y, self.mid_channels // 2, dim=1)
+        # Split and transform
+        x_h, x_w = torch.split(y, [h, w], dim=2)
+        x_w = x_w.permute(0, 1, 3, 2)
         
-        x_h = x_h.squeeze(3).transpose(1, 2)[:h]  # (B, H, mid_channels//2)
-        x_w = x_w.squeeze(3).transpose(1, 2)[:w]  # (B, W, mid_channels//2)
+        # Attention maps
+        a_h = self.sigmoid(self.conv_h(x_h))
+        a_w = self.sigmoid(self.conv_w(x_w))
         
-        a_h = self.conv_h(x_h.transpose(1, 2).unsqueeze(3))  # (B, C, H, 1)
-        a_w = self.conv_w(x_w.transpose(1, 2).unsqueeze(2))  # (B, C, 1, W)
-        a_h = self.sigmoid(a_h)
-        a_w = self.sigmoid(a_w)
-        
-        out = x * a_h * a_w
-        return out
+        return identity * a_h * a_w
+
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
         super().__init__()
@@ -70,14 +54,14 @@ class KANLayer(nn.Module):
         hidden_features = hidden_features or in_features
         self.dim = in_features
         
-        grid_size = 5
-        spline_order = 3
-        scale_noise = 0.1
-        scale_base = 1.0
-        scale_spline = 1.0
-        base_activation = torch.nn.SiLU
-        grid_eps = 0.02
-        grid_range = [-1, 1]
+        grid_size=5
+        spline_order=3
+        scale_noise=0.1
+        scale_base=1.0
+        scale_spline=1.0
+        base_activation=torch.nn.SiLU
+        grid_eps=0.02
+        grid_range=[-1, 1]
 
         if not no_kan:
             self.fc1 = KANLinear(
@@ -121,14 +105,10 @@ class KANLayer(nn.Module):
             self.fc2 = nn.Linear(hidden_features, out_features)
             self.fc3 = nn.Linear(hidden_features, out_features)
 
-        self.ca1 = CoordAttention(hidden_features)
-        self.ca2 = CoordAttention(hidden_features)
-        self.ca3 = CoordAttention(hidden_features)
-
-        self.dwconv_1 = DW_bn_relu(hidden_features)
-        self.dwconv_2 = DW_bn_relu(hidden_features)
-        self.dwconv_3 = DW_bn_relu(hidden_features)
-    
+        self.dwconv_1 = DW_bn_relu_ca(hidden_features)
+        self.dwconv_2 = DW_bn_relu_ca(hidden_features)
+        self.dwconv_3 = DW_bn_relu_ca(hidden_features)
+        
         self.drop = nn.Dropout(drop)
         self.apply(self._init_weights)
 
@@ -146,68 +126,42 @@ class KANLayer(nn.Module):
             m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
             if m.bias is not None:
                 m.bias.data.zero_()
-
+    
     def forward(self, x, H, W):
         B, N, C = x.shape
 
-        x = self.fc1(x.reshape(B*N, C))
-        x = x.reshape(B, N, C).contiguous()
+        x = self.fc1(x.reshape(B*N,C))
+        x = x.reshape(B,N,C).contiguous()
         x = self.dwconv_1(x, H, W)
-        x = x.transpose(1, 2).view(B, C, H, W)
-        x = self.ca1(x)
-        x = x.flatten(2).transpose(1, 2)
-
-        x = self.fc2(x.reshape(B*N, C))
-        x = x.reshape(B, N, C).contiguous()
+        
+        x = self.fc2(x.reshape(B*N,C))
+        x = x.reshape(B,N,C).contiguous()
         x = self.dwconv_2(x, H, W)
-        x = x.transpose(1, 2).view(B, C, H, W)
-        x = self.ca2(x)
-        x = x.flatten(2).transpose(1, 2)
-
-        x = self.fc3(x.reshape(B*N, C))
-        x = x.reshape(B, N, C).contiguous()
+        
+        x = self.fc3(x.reshape(B*N,C))
+        x = x.reshape(B,N,C).contiguous()
         x = self.dwconv_3(x, H, W)
-        x = x.transpose(1, 2).view(B, C, H, W)
-        x = self.ca3(x)
-        x = x.flatten(2).transpose(1, 2)
     
         return x
 
-class ConvLayer(nn.Module):
-    def __init__(self, in_ch, out_ch):
-        super(ConvLayer, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(out_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
-        )
-        self.ca = CoordAttention(out_ch)
+class DW_bn_relu_ca(nn.Module):
+    def __init__(self, dim=768):
+        super(DW_bn_relu_ca, self).__init__()
+        self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
+        self.bn = nn.BatchNorm2d(dim)
+        self.relu = nn.ReLU()
+        self.ca = CoordinatedAttention(dim)
 
-    def forward(self, input):
-        x = self.conv(input)
-        x = self.ca(x)
+    def forward(self, x, H, W):
+        B, N, C = x.shape
+        x = x.transpose(1, 2).view(B, C, H, W)
+        x = self.dwconv(x)
+        x = self.bn(x)
+        x = self.relu(x)
+        x = self.ca(x)  # Coordinated Attention
+        x = x.flatten(2).transpose(1, 2)
         return x
 
-class D_ConvLayer(nn.Module):
-    def __init__(self, in_ch, out_ch):
-        super(D_ConvLayer, self).__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_ch, in_ch, 3, padding=1),
-            nn.BatchNorm2d(in_ch),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
-        )
-        self.ca = CoordAttention(out_ch)
-
-    def forward(self, input):
-        x = self.conv(input)
-        x = self.ca(x)
-        return x
 
 class KANBlock(nn.Module):
     def __init__(self, dim, drop=0., drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, no_kan=False):
@@ -249,22 +203,6 @@ class DWConv(nn.Module):
         x = x.flatten(2).transpose(1, 2)
         return x
 
-class DW_bn_relu(nn.Module):
-    def __init__(self, dim=768):
-        super(DW_bn_relu, self).__init__()
-        self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
-        self.bn = nn.BatchNorm2d(dim)
-        self.relu = nn.ReLU()
-
-    def forward(self, x, H, W):
-        B, N, C = x.shape
-        x = x.transpose(1, 2).view(B, C, H, W)
-        x = self.dwconv(x)
-        x = self.bn(x)
-        x = self.relu(x)
-        x = x.flatten(2).transpose(1, 2)
-        return x
-
 class PatchEmbed(nn.Module):
     def __init__(self, img_size=224, patch_size=7, stride=4, in_chans=3, embed_dim=768):
         super().__init__()
@@ -275,7 +213,7 @@ class PatchEmbed(nn.Module):
         self.H, self.W = img_size[0] // patch_size[0], img_size[1] // patch_size[1]
         self.num_patches = self.H * self.W
         self.proj = nn.Conv2d(in_chans, embed_dim, kernel_size=patch_size, stride=stride,
-                              padding=(patch_size[0] // 2, patch_size[1] // 2))
+                            padding=(patch_size[0] // 2, patch_size[1] // 2))
         self.norm = nn.LayerNorm(embed_dim)
         self.apply(self._init_weights)
 
@@ -301,6 +239,48 @@ class PatchEmbed(nn.Module):
         x = self.norm(x)
         return x, H, W
 
+class ConvLayer(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super(ConvLayer, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True)
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True)
+        )
+        self.ca = CoordinatedAttention(out_ch)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.ca(x)  # Coordinated Attention
+        return x
+
+class D_ConvLayer(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super(D_ConvLayer, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_ch, in_ch, 3, padding=1),
+            nn.BatchNorm2d(in_ch),
+            nn.ReLU(inplace=True)
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True)
+        )
+        self.ca = CoordinatedAttention(out_ch)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.ca(x)  # Coordinated Attention
+        return x
+
 class UKAN_CA(nn.Module):
     def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, 
                  embed_dims=[256, 320, 512], no_kan=False, drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, 
@@ -322,22 +302,34 @@ class UKAN_CA(nn.Module):
 
         self.block1 = nn.ModuleList([KANBlock(
             dim=embed_dims[1], 
-            drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer
+            drop=drop_rate, 
+            drop_path=dpr[0], 
+            norm_layer=norm_layer,
+            no_kan=no_kan
         )])
 
         self.block2 = nn.ModuleList([KANBlock(
             dim=embed_dims[2],
-            drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer
+            drop=drop_rate, 
+            drop_path=dpr[1], 
+            norm_layer=norm_layer,
+            no_kan=no_kan
         )])
 
         self.dblock1 = nn.ModuleList([KANBlock(
             dim=embed_dims[1], 
-            drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer
+            drop=drop_rate, 
+            drop_path=dpr[0], 
+            norm_layer=norm_layer,
+            no_kan=no_kan
         )])
 
         self.dblock2 = nn.ModuleList([KANBlock(
             dim=embed_dims[0], 
-            drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer
+            drop=drop_rate, 
+            drop_path=dpr[1], 
+            norm_layer=norm_layer,
+            no_kan=no_kan
         )])
 
         self.patch_embed3 = PatchEmbed(img_size=img_size // 4, patch_size=3, stride=2, in_chans=embed_dims[0], embed_dim=embed_dims[1])
@@ -354,49 +346,56 @@ class UKAN_CA(nn.Module):
 
     def forward(self, x):
         B = x.shape[0]
+        
+        # Encoder
         out = F.relu(F.max_pool2d(self.encoder1(x), 2, 2))
         t1 = out
+        
         out = F.relu(F.max_pool2d(self.encoder2(out), 2, 2))
         t2 = out
+        
         out = F.relu(F.max_pool2d(self.encoder3(out), 2, 2))
         t3 = out
 
+        # Bottleneck
         out, H, W = self.patch_embed3(out)
-        for i, blk in enumerate(self.block1):
+        for blk in self.block1:
             out = blk(out, H, W)
         out = self.norm3(out)
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
         t4 = out
 
         out, H, W = self.patch_embed4(out)
-        for i, blk in enumerate(self.block2):
+        for blk in self.block2:
             out = blk(out, H, W)
         out = self.norm4(out)
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
 
-        out = F.relu(F.interpolate(self.decoder1(out), scale_factor=(2, 2), mode='bilinear'))
+        # Decoder
+        out = F.relu(F.interpolate(self.decoder1(out), scale_factor=(2,2), mode='bilinear'))
         out = torch.add(out, t4)
         _, _, H, W = out.shape
         out = out.flatten(2).transpose(1, 2)
-        for i, blk in enumerate(self.dblock1):
+        for blk in self.dblock1:
             out = blk(out, H, W)
 
         out = self.dnorm3(out)
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
-        out = F.relu(F.interpolate(self.decoder2(out), scale_factor=(2, 2), mode='bilinear'))
+        out = F.relu(F.interpolate(self.decoder2(out), scale_factor=(2,2), mode='bilinear'))
         out = torch.add(out, t3)
         _, _, H, W = out.shape
         out = out.flatten(2).transpose(1, 2)
         
-        for i, blk in enumerate(self.dblock2):
+        for blk in self.dblock2:
             out = blk(out, H, W)
 
         out = self.dnorm4(out)
         out = out.reshape(B, H, W, -1).permute(0, 3, 1, 2).contiguous()
-        out = F.relu(F.interpolate(self.decoder3(out), scale_factor=(2, 2), mode='bilinear'))
+
+        out = F.relu(F.interpolate(self.decoder3(out), scale_factor=(2,2), mode='bilinear'))
         out = torch.add(out, t2)
-        out = F.relu(F.interpolate(self.decoder4(out), scale_factor=(2, 2), mode='bilinear'))
+        out = F.relu(F.interpolate(self.decoder4(out), scale_factor=(2,2), mode='bilinear'))
         out = torch.add(out, t1)
-        out = F.relu(F.interpolate(self.decoder5(out), scale_factor=(2, 2), mode='bilinear'))
+        out = F.relu(F.interpolate(self.decoder5(out), scale_factor=(2,2), mode='bilinear'))
 
         return self.final(out)
