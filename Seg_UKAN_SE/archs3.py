@@ -222,9 +222,11 @@ class D_ConvLayer(nn.Module):
         return x
 
 class UKAN_CBAM(nn.Module):
-    def __init__(self, num_classes, input_channels=3, img_size=224, embed_dims=[256, 320, 512]):
+    def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, 
+                 embed_dims=[256, 320, 512], no_kan=False, drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, 
+                 depths=[1, 1, 1], **kwargs):
         super().__init__()
-        
+       
         self.encoder1 = ConvLayer(input_channels, embed_dims[0]//8)
         self.encoder2 = ConvLayer(embed_dims[0]//8, embed_dims[0]//4)
         self.encoder3 = ConvLayer(embed_dims[0]//4, embed_dims[0])
