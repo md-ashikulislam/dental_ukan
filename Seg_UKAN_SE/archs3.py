@@ -5,6 +5,8 @@ from timm.layers import DropPath, to_2tuple, trunc_normal_
 import math
 from kan import KANLinear, KAN
 
+_all_ = ['UKAN_CA'] 
+
 class CoordinatedAttention(nn.Module):
     def __init__(self, in_channels, reduction_ratio=8):
         super(CoordinatedAttention, self).__init__()
