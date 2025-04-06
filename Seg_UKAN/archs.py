@@ -300,22 +300,22 @@ class UKAN(nn.Module):
 
         self.block1 = nn.ModuleList([KANBlock(
             dim=embed_dims[1], 
-            drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer
+            drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer, no_kan=no_kan
             )])
 
         self.block2 = nn.ModuleList([KANBlock(
             dim=embed_dims[2],
-            drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer
+            drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer, no_kan=no_kan
             )])
 
         self.dblock1 = nn.ModuleList([KANBlock(
             dim=embed_dims[1], 
-            drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer
+            drop=drop_rate, drop_path=dpr[0], norm_layer=norm_layer, no_kan=no_kan
             )])
 
         self.dblock2 = nn.ModuleList([KANBlock(
             dim=embed_dims[0], 
-            drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer
+            drop=drop_rate, drop_path=dpr[1], norm_layer=norm_layer, no_kan=no_kan
             )])
 
         self.patch_embed3 = PatchEmbed(img_size=img_size // 4, patch_size=3, stride=2, in_chans=embed_dims[0], embed_dim=embed_dims[1])
