@@ -12,79 +12,124 @@ from timm.layers import DropPath, to_2tuple, trunc_normal_
 import math
 from kan import KANLinear, KAN
 
-_all_ = ['UKAN_CBAM'] 
+_all_ = ['UKAN_CBAM']
 
+# Channel Attention Module (CAM)
 class ChannelAttention(nn.Module):
-    def __init__(self, in_planes, ratio=8):
+    def __init__(self, in_planes, ratio=16):
         super(ChannelAttention, self).__init__()
-        hidden_planes = max(1, in_planes // ratio)
         self.avg_pool = nn.AdaptiveAvgPool2d(1)
         self.max_pool = nn.AdaptiveMaxPool2d(1)
 
-        self.shared_MLP = nn.Sequential(
-            nn.Conv2d(in_planes, hidden_planes, 1, bias=False),
-            nn.ReLU(),
-            nn.Conv2d(hidden_planes, in_planes, 1, bias=False)
-        )
+        self.fc1   = nn.Conv2d(in_planes, in_planes // ratio, 1, bias=False)
+        self.relu1 = nn.ReLU()
+        self.fc2   = nn.Conv2d(in_planes // ratio, in_planes, 1, bias=False)
+
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        avg_out = self.shared_MLP(self.avg_pool(x))
-        max_out = self.shared_MLP(self.max_pool(x))
+        avg_out = self.fc2(self.relu1(self.fc1(self.avg_pool(x))))
+        max_out = self.fc2(self.relu1(self.fc1(self.max_pool(x))))
         out = avg_out + max_out
         return self.sigmoid(out)
 
+# Spatial Attention Module (SAM)
 class SpatialAttention(nn.Module):
     def __init__(self, kernel_size=7):
         super(SpatialAttention, self).__init__()
+
         assert kernel_size in (3, 7), 'kernel size must be 3 or 7'
         padding = 3 if kernel_size == 7 else 1
 
-        self.conv = nn.Conv2d(2, 1, kernel_size=kernel_size, padding=padding, bias=False)
+        self.conv1 = nn.Conv2d(2, 1, kernel_size, padding=padding, bias=False)
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         avg_out = torch.mean(x, dim=1, keepdim=True)
         max_out, _ = torch.max(x, dim=1, keepdim=True)
-        x_cat = torch.cat([avg_out, max_out], dim=1)
-        attention = self.sigmoid(self.conv(x_cat))
-        return x * attention
+        x = torch.cat([avg_out, max_out], dim=1)
+        x = self.conv1(x)
+        return self.sigmoid(x)
 
+# CBAM Block
 class CBAM(nn.Module):
-    def __init__(self, planes, ratio=8, kernel_size=7):
+    def __init__(self, in_planes, ratio=16, kernel_size=7):
         super(CBAM, self).__init__()
-        self.ca = ChannelAttention(planes, ratio)
+        self.ca = ChannelAttention(in_planes, ratio)
         self.sa = SpatialAttention(kernel_size)
 
     def forward(self, x):
-        return self.sa(self.ca(x) * x) * x
+        x = x * self.ca(x)
+        x = x * self.sa(x)
+        return x
 
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
         super().__init__()
         out_features = out_features or in_features
         hidden_features = hidden_features or in_features
-        
-        # KANLinear layers
+        self.dim = in_features
+
+        grid_size=5
+        spline_order=3
+        scale_noise=0.1
+        scale_base=1.0
+        scale_spline=1.0
+        base_activation=torch.nn.SiLU
+        grid_eps=0.02
+        grid_range=[-1, 1]
+
         if not no_kan:
-            self.fc1 = KANLinear(in_features, hidden_features)
-            self.fc2 = KANLinear(hidden_features, out_features)
-            self.fc3 = KANLinear(hidden_features, out_features)
+            self.fc1 = KANLinear(
+                in_features,
+                hidden_features,
+                grid_size=grid_size,
+                spline_order=spline_order,
+                scale_noise=scale_noise,
+                scale_base=scale_base,
+                scale_spline=scale_spline,
+                base_activation=base_activation,
+                grid_eps=grid_eps,
+                grid_range=grid_range,
+            )
+            self.fc2 = KANLinear(
+                hidden_features,
+                out_features,
+                grid_size=grid_size,
+                spline_order=spline_order,
+                scale_noise=scale_noise,
+                scale_base=scale_base,
+                scale_spline=scale_spline,
+                base_activation=base_activation,
+                grid_eps=grid_eps,
+                grid_range=grid_range,
+            )
+            self.fc3 = KANLinear(
+                hidden_features,
+                out_features,
+                grid_size=grid_size,
+                spline_order=spline_order,
+                scale_noise=scale_noise,
+                scale_base=scale_base,
+                scale_spline=scale_spline,
+                base_activation=base_activation,
+                grid_eps=grid_eps,
+                grid_range=grid_range,
+            )
         else:
             self.fc1 = nn.Linear(in_features, hidden_features)
             self.fc2 = nn.Linear(hidden_features, out_features)
             self.fc3 = nn.Linear(hidden_features, out_features)
-        
 
         self.dwconv_1 = DW_bn_relu(hidden_features)
         self.dwconv_2 = DW_bn_relu(hidden_features)
         self.dwconv_3 = DW_bn_relu(hidden_features)
 
-        # CBAM attention (replaces HybridAttention)
         self.cbam1 = CBAM(hidden_features)
         self.cbam2 = CBAM(hidden_features)
         self.cbam3 = CBAM(hidden_features)
-        
+
+
         self.drop = nn.Dropout(drop)
         self.apply(self._init_weights)
 
@@ -102,33 +147,27 @@ class KANLayer(nn.Module):
             m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
             if m.bias is not None:
                 m.bias.data.zero_()
-    
+
     def forward(self, x, H, W):
         B, N, C = x.shape
 
         x = self.fc1(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
         x = self.dwconv_1(x, H, W)
-        x = x.transpose(1, 2).view(B, C, H, W)
-        x = self.cbam1(x)
-        x = x.flatten(2).transpose(1, 2)
+        x = self.cbam1(x.reshape(B, C, H, W)).reshape(B, N, C)
 
         x = self.fc2(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
         x = self.dwconv_2(x, H, W)
-        x = x.transpose(1, 2).view(B, C, H, W)
-        x = self.cbam2(x)
-        x = x.flatten(2).transpose(1, 2)
+        x = self.cbam2(x.reshape(B, C, H, W)).reshape(B, N, C)
 
         x = self.fc3(x.reshape(B*N,C))
         x = x.reshape(B,N,C).contiguous()
         x = self.dwconv_3(x, H, W)
-        x = x.transpose(1, 2).view(B, C, H, W)
-        x = self.cbam3(x)
-        x = x.flatten(2).transpose(1, 2)
+        x = self.cbam3(x.reshape(B, C, H, W)).reshape(B, N, C)
 
         return x
-    
+
 class KANBlock(nn.Module):
     def __init__(self, dim, drop=0., drop_path=0., act_layer=nn.GELU, norm_layer=nn.LayerNorm, no_kan=False):
         super().__init__()
@@ -223,7 +262,7 @@ class PatchEmbed(nn.Module):
 
 class ConvLayer(nn.Module):
     def __init__(self, in_ch, out_ch):
-        super().__init__()
+        super(ConvLayer, self).__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(in_ch, out_ch, 3, padding=1),
             nn.BatchNorm2d(out_ch),
@@ -232,16 +271,16 @@ class ConvLayer(nn.Module):
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True)
         )
-        self.attn = CBAM(out_ch)  # Using CBAM instead of HybridAttention
+        self.cbam = CBAM(out_ch)
 
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.attn(x)
+    def forward(self, input):
+        x = self.conv(input)
+        x = self.cbam(x)
         return x
 
 class D_ConvLayer(nn.Module):
     def __init__(self, in_ch, out_ch):
-        super().__init__()
+        super(D_ConvLayer, self).__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(in_ch, in_ch, 3, padding=1),
             nn.BatchNorm2d(in_ch),
@@ -250,13 +289,12 @@ class D_ConvLayer(nn.Module):
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True)
         )
-        self.attn = CBAM(out_ch)
+        self.cbam = CBAM(out_ch)
 
-    def forward(self, x):
-        x = self.conv(x)
-        x = self.attn(x)
+    def forward(self, input):
+        x = self.conv(input)
+        x = self.cbam(x)
         return x
-
 class UKAN_CBAM(nn.Module):
     def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, 
                  embed_dims=[256, 320, 512], no_kan=False, drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, 
