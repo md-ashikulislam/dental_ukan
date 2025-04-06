@@ -20,13 +20,13 @@ class CoordAttention(nn.Module):
         self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
         self.pool_w = nn.AdaptiveAvgPool2d((1, None))
         mid_channels = max(8, in_channels // reduction)
-        # conv1 should accept 2 * in_channels due to concatenation
         self.conv1 = nn.Conv2d(2 * in_channels, mid_channels, kernel_size=1, stride=1, padding=0)
         self.bn = nn.BatchNorm2d(mid_channels)
         self.act = nn.ReLU(inplace=True)
         self.conv_h = nn.Conv2d(mid_channels, in_channels, kernel_size=1, stride=1, padding=0)
         self.conv_w = nn.Conv2d(mid_channels, in_channels, kernel_size=1, stride=1, padding=0)
         self.sigmoid = nn.Sigmoid()
+        self.mid_channels = mid_channels  # Store for use in forward
 
     def forward(self, x):
         b, c, h, w = x.size()
@@ -50,10 +50,11 @@ class CoordAttention(nn.Module):
         y = self.bn(y)
         y = self.act(y)
         
-        x_h, x_w = torch.split(y, [c, c], dim=1)  # Split should match in_channels, not mid_channels
+        # Split into two parts, each with mid_channels
+        x_h, x_w = torch.split(y, self.mid_channels // 2, dim=1)
         
-        x_h = x_h.squeeze(3).transpose(1, 2)[:h]  # (B, H, C)
-        x_w = x_w.squeeze(3).transpose(1, 2)[:w]  # (B, W, C)
+        x_h = x_h.squeeze(3).transpose(1, 2)[:h]  # (B, H, mid_channels//2)
+        x_w = x_w.squeeze(3).transpose(1, 2)[:w]  # (B, W, mid_channels//2)
         
         a_h = self.conv_h(x_h.transpose(1, 2).unsqueeze(3))  # (B, C, H, 1)
         a_w = self.conv_w(x_w.transpose(1, 2).unsqueeze(2))  # (B, C, 1, W)
