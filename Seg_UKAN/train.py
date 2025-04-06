@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 import yaml
 import cv2
+import matplotlib.pyplot as plt
 
 from albumentations.augmentations import transforms
 from albumentations.augmentations import geometric
@@ -322,6 +323,101 @@ def log_validation_images(writer, val_loader, model, num_images=4, global_step=0
     predictions = (predictions > 0.5).float()  # Threshold at 0.5
     writer.add_images('val/predictions', predictions, global_step)
 
+def visualize_single_sample(writer, model, val_loader, epoch):
+    """Visualize a single random sample with activations and metrics"""
+    # Get a random batch
+    inputs, targets, _ = next(iter(val_loader))
+    
+    # Select a random sample from the batch
+    idx = torch.randint(0, inputs.size(0), (1,)).item()
+    input_img = inputs[idx].unsqueeze(0).cuda()
+    target_mask = targets[idx].unsqueeze(0).cuda()
+    
+    # Get model output and activations
+    model.eval()
+    with torch.no_grad():
+        output, activations = model(input_img, return_activations=True)
+        output = torch.sigmoid(output)
+    
+    # Calculate metrics
+    iou = iou_score(output, target_mask)
+    dice = dice_coef(output, target_mask)
+    piou, thresholded_acts = calculate_plausibility_iou(activations, target_mask)
+    
+    # Prepare images for visualization
+    input_img = input_img.cpu()
+    target_mask = target_mask.cpu()
+    output = output.cpu()
+    activations = activations.cpu()
+    thresholded_acts = thresholded_acts.cpu()
+    
+    # Normalize for visualization
+    input_img = (input_img - input_img.min()) / (input_img.max() - input_img.min() + 1e-6)
+    act_normalized = (activations - activations.min()) / (activations.max() - activations.min() + 1e-6)
+    
+    # Create image grid
+    fig, axes = plt.subplots(2, 3, figsize=(18, 12))
+    
+    # Input image
+    axes[0,0].imshow(input_img.squeeze().permute(1,2,0) if input_img.shape[1]==3 else input_img.squeeze(), 
+                    cmap='gray')
+    axes[0,0].set_title("Input Image")
+    axes[0,0].axis('off')
+    
+    # Ground truth
+    axes[0,1].imshow(target_mask.squeeze(), cmap='gray')
+    axes[0,1].set_title("Ground Truth")
+    axes[0,1].axis('off')
+    
+    # Prediction
+    axes[0,2].imshow((output > 0.5).float().squeeze(), cmap='gray')
+    axes[0,2].set_title(f"Prediction (IoU: {iou:.2f}, Dice: {dice:.2f})")
+    axes[0,2].axis('off')
+    
+    # Activation heatmap
+    im = axes[1,0].imshow(act_normalized.squeeze(), cmap='jet')
+    axes[1,0].set_title("Activation Heatmap")
+    axes[1,0].axis('off')
+    plt.colorbar(im, ax=axes[1,0])
+    
+    # Thresholded activations
+    axes[1,1].imshow(thresholded_acts.squeeze(), cmap='jet')
+    axes[1,1].set_title(f"Thresholded Activations (PIoU: {piou:.2f})")
+    axes[1,1].axis('off')
+    
+    # Overlay
+    axes[1,2].imshow(input_img.squeeze().permute(1,2,0) if input_img.shape[1]==3 else input_img.squeeze(), 
+                    cmap='gray')
+    axes[1,2].imshow(act_normalized.squeeze(), cmap='jet', alpha=0.5)
+    axes[1,2].set_title("Activation Overlay")
+    axes[1,2].axis('off')
+    
+    plt.tight_layout()
+    
+    # Add to TensorBoard
+    writer.add_figure('sample_visualization', fig, global_step=epoch)
+    plt.close(fig)
+    
+def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
+    """Calculate Plausibility IoU between thresholded activations and GT mask"""
+    # Average across channels if multi-channel
+    if activations.size(1) > 1:
+        activations = torch.mean(activations, dim=1, keepdim=True)
+    
+    # Calculate threshold value
+    flat_acts = activations.view(-1)
+    threshold = torch.quantile(flat_acts, threshold_percentile/100)
+    
+    # Threshold activations
+    thresholded = (activations > threshold).float()
+    
+    # Calculate IoU
+    intersection = (thresholded * gt_mask).sum()
+    union = (thresholded + gt_mask).clamp(0, 1).sum()
+    piou = (intersection / (union + 1e-6)).item()
+    
+    return piou, thresholded
+
 def seed_torch(seed=1029):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -435,10 +531,10 @@ def main():
         raise NotImplementedError
     
     # # Load the checkpoint
-    # checkpoint = torch.load('/kaggle/input/checkpoint171/model.pth')
+    checkpoint = torch.load('/kaggle/input/checkpointukan/modelukan.pth')
 
-    # model.load_state_dict(checkpoint['state_dict'])
-    # optimizer.load_state_dict(checkpoint['optimizer'])
+    model.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
 
 
     dataset_name = config['dataset']
@@ -537,6 +633,10 @@ def main():
         val_log = validate(config, val_loader, model, criterion)
 
         log_validation_images(my_writer, val_loader, model, global_step=epoch)
+
+        # Add this to your main training loop (after validation)
+        if epoch % 5 == 0:  # Every 5 epochs
+            visualize_single_sample(my_writer, model, val_loader, epoch)
 
         if config['scheduler'] == 'CosineAnnealingLR':
             scheduler.step()

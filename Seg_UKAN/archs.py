@@ -330,8 +330,7 @@ class UKAN(nn.Module):
         self.final = nn.Conv2d(embed_dims[0]//8, num_classes, kernel_size=1)
         self.soft = nn.Softmax(dim =1)
 
-    def forward(self, x):
-        
+    def forward(self, x, return_activations=False):        
         B = x.shape[0]
         ### Encoder
         ### Conv Stage
@@ -391,6 +390,10 @@ class UKAN(nn.Module):
         out = torch.add(out,t2)
         out = F.relu(F.interpolate(self.decoder4(out),scale_factor=(2,2),mode ='bilinear'))
         out = torch.add(out,t1)
-        out = F.relu(F.interpolate(self.decoder5(out),scale_factor=(2,2),mode ='bilinear'))
+        last_layer_activations = F.relu(F.interpolate(self.decoder5(out), scale_factor=(2,2), mode='bilinear'))
+        
+        output = self.final(last_layer_activations)
 
-        return self.final(out)
+        if return_activations:
+            return output, last_layer_activations
+        return output
