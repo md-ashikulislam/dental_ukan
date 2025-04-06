@@ -20,7 +20,8 @@ class CoordAttention(nn.Module):
         self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
         self.pool_w = nn.AdaptiveAvgPool2d((1, None))
         mid_channels = max(8, in_channels // reduction)
-        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=1, stride=1, padding=0)
+        # conv1 should accept 2 * in_channels due to concatenation
+        self.conv1 = nn.Conv2d(2 * in_channels, mid_channels, kernel_size=1, stride=1, padding=0)
         self.bn = nn.BatchNorm2d(mid_channels)
         self.act = nn.ReLU(inplace=True)
         self.conv_h = nn.Conv2d(mid_channels, in_channels, kernel_size=1, stride=1, padding=0)
@@ -45,11 +46,11 @@ class CoordAttention(nn.Module):
         y = torch.cat([x_h, x_w], dim=2)  # (B, max(H,W), 2*C)
         y = y.transpose(1, 2).unsqueeze(3)  # (B, 2*C, max(H,W), 1)
         
-        y = self.conv1(y)
+        y = self.conv1(y)  # (B, mid_channels, max(H,W), 1)
         y = self.bn(y)
         y = self.act(y)
         
-        x_h, x_w = torch.split(y, [c, c], dim=1)
+        x_h, x_w = torch.split(y, [c, c], dim=1)  # Split should match in_channels, not mid_channels
         
         x_h = x_h.squeeze(3).transpose(1, 2)[:h]  # (B, H, C)
         x_w = x_w.squeeze(3).transpose(1, 2)[:w]  # (B, W, C)
@@ -61,7 +62,6 @@ class CoordAttention(nn.Module):
         
         out = x * a_h * a_w
         return out
-
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
         super().__init__()
