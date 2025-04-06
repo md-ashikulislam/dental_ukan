@@ -5,6 +5,7 @@ from collections import OrderedDict
 from glob import glob
 import random
 import numpy as np
+import matplotlib.pyplot as plt
 
 import pandas as pd
 import torch
@@ -56,6 +57,7 @@ LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
 
 
+
 def list_type(s):
     str_list = s.split(',')
     int_list = [int(a) for a in str_list]
@@ -75,10 +77,10 @@ def parse_args():
                         help='')
     
     # model
-    parser.add_argument('--arch', '-a', metavar='ARCH', default='UKAN_SE')
+    parser.add_argument('--arch', '-a', metavar='ARCH', default='UKAN')
     
     parser.add_argument('--deep_supervision', default=False, type=str2bool)
-    parser.add_argument('--input_channels', default=1, type=int,
+    parser.add_argument('--input_channels', default=3, type=int,
                         help='input channels')
     parser.add_argument('--num_classes', default=1, type=int,
                         help='number of classes')
@@ -264,29 +266,6 @@ def validate(config, val_loader, model, criterion):
                         ('specificity', avg_meters['specificity'].avg),
                         ('precision', avg_meters['precision'].avg)])
 
-def log_training_images(writer, train_loader, num_images=4, global_step=0):
-    """
-    Log training images and masks to TensorBoard.
-    
-    Args:
-        writer (SummaryWriter): TensorBoard writer.
-        train_loader (DataLoader): Training data loader.
-        num_images (int): Number of images to log.
-        global_step (int): Global step for TensorBoard logging.
-    """
-    # Get a batch of training data
-    images, masks, _ = next(iter(train_loader))
-    
-    # Log only the first `num_images` images and masks
-    images = images[:num_images]
-    masks = masks[:num_images]
-    
-    # Log images
-    writer.add_images('train/images', images, global_step)
-    
-    # Log masks (convert to grayscale for visualization)
-    writer.add_images('train/masks', masks, global_step)
-
 def log_validation_images(writer, val_loader, model, num_images=4, global_step=0):
     """
     Log validation images, masks, and predictions to TensorBoard.
@@ -320,11 +299,88 @@ def log_validation_images(writer, val_loader, model, num_images=4, global_step=0
     
     # Log ground truth masks (convert to grayscale for visualization)
     writer.add_images('val/masks', masks, global_step)
-    
-    # Log predictions (apply sigmoid if necessary and threshold at 0.5)
-    predictions = torch.sigmoid(predictions)  # Apply sigmoid for binary classification
-    predictions = (predictions > 0.5).float()  # Threshold at 0.5
     writer.add_images('val/predictions', predictions, global_step)
+
+def visualize_single_sample(writer, model, val_loader, epoch):
+    """Plot activations, prediction, and GT as separate full-size figures"""    
+    # Get sample
+    inputs, targets, _ = next(iter(val_loader))
+    idx = torch.randint(0, inputs.size(0), (1,)).item()
+    input_img = inputs[idx].unsqueeze(0).cuda()
+    target_mask = targets[idx].unsqueeze(0).cuda()
+    
+    # Forward pass
+    model.eval()
+    with torch.no_grad():
+        if isinstance(model, torch.nn.DataParallel):
+            output, activations = model.module(input_img, return_activations=True)
+        else:
+            output, activations = model(input_img, return_activations=True)
+        output = torch.sigmoid(output)
+    
+    # Calculate metrics
+    iou = iou_score(output, target_mask)
+    dice = dice_coef(output, target_mask)
+    piou, _ = calculate_plausibility_iou(activations, target_mask)
+    
+    # Prepare tensors
+    input_img = input_img.cpu().squeeze()
+    target_mask = target_mask.cpu().squeeze()
+    output = output.cpu().squeeze()
+    activations = activations.cpu().squeeze()
+    
+    # Normalize activations (mean across channels if needed)
+    if len(activations.shape) == 3:
+        activations = activations.mean(dim=0)
+    activations = (activations - activations.min()) / (activations.max() - activations.min() + 1e-6)
+
+    # -----------------------------------------------
+    # 1. Activation Heatmap (Full Page)
+    plt.figure(figsize=(12, 10))
+    plt.imshow(activations, cmap='jet', vmin=0, vmax=1)
+    plt.title(f"Activation Map (PIoU: {piou:.2f})", fontsize=16, pad=20)
+    plt.axis('off')
+    cbar = plt.colorbar(fraction=0.046, pad=0.04)
+    cbar.ax.tick_params(labelsize=12)
+    writer.add_figure('activations/heatmap', plt.gcf(), epoch)
+    plt.close()
+    
+    # 2. Prediction Mask (Full Page)
+    plt.figure(figsize=(12, 10))
+    plt.imshow((output > 0.5).float(), cmap='gray')
+    plt.title(f"Prediction\nIoU: {iou:.2f}  Dice: {dice:.2f}", 
+              fontsize=16, pad=20)
+    plt.axis('off')
+    writer.add_figure('prediction/mask', plt.gcf(), epoch)
+    plt.close()
+    
+    # 3. Ground Truth (Full Page)
+    plt.figure(figsize=(12, 10))
+    plt.imshow(target_mask, cmap='gray')
+    plt.title("Ground Truth", fontsize=16, pad=20)
+    plt.axis('off')
+    writer.add_figure('ground_truth/mask', plt.gcf(), epoch)
+    plt.close()
+
+def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
+    """Calculate Plausibility IoU between thresholded activations and GT mask"""
+    # Average across channels if multi-channel
+    if activations.size(1) > 1:
+        activations = torch.mean(activations, dim=1, keepdim=True)
+    
+    # Calculate threshold value
+    flat_acts = activations.view(-1)
+    threshold = torch.quantile(flat_acts, threshold_percentile/100)
+    
+    # Threshold activations
+    thresholded = (activations > threshold).float()
+    
+    # Calculate IoU
+    intersection = (thresholded * gt_mask).sum()
+    union = (thresholded + gt_mask).clamp(0, 1).sum()
+    piou = (intersection / (union + 1e-6)).item()
+    
+    return piou, thresholded
 
 def seed_torch(seed=1029):
     random.seed(seed)
@@ -383,13 +439,18 @@ def main():
     cudnn.benchmark = True
 
     # create model
-    model = archs4.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
+    model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
 
 
+    # Count parameters and print PrettyTable
     total_params = count_parameters(model)
     config['total_params'] = total_params  # Store in config for yaml
 
+    #FOR 1 GPUs
+    # model = model.cuda()
 
+    #FOR 2 GPUs
+    # Move model to multiple GPUs
     if torch.cuda.device_count() > 1:
       print(f"Using {torch.cuda.device_count()} GPUs!")
       model = torch.nn.DataParallel(model)
@@ -433,8 +494,8 @@ def main():
     else:
         raise NotImplementedError
     
-    # Load the checkpoint
-    # checkpoint = torch.load('/kaggle/input/checkpoint150/model.pth')
+    # # Load the checkpoint
+    # checkpoint = torch.load('/kaggle/input/checkpointukan/modelukan.pth')
 
     # model.load_state_dict(checkpoint['state_dict'])
     # optimizer.load_state_dict(checkpoint['optimizer'])
@@ -442,11 +503,10 @@ def main():
 
     dataset_name = config['dataset']
 
-    if dataset_name == 'Dental' or 'Dental_Final_Dataset' or 'new_dataset':
+    if dataset_name == 'Dental' or 'new_dataset':
        img_ext = '.JPG'       
        mask_ext = '.jpg'
     
-    ##
     # Data loading code
     img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'images', '*' + img_ext)))
     img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
@@ -529,14 +589,15 @@ def main():
     for epoch in range(config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
 
-        # Log training images at the start of training
-        if epoch % 10 == 0:
-            log_training_images(my_writer, train_loader, global_step=epoch)
 
         train_log = train(config, train_loader, model, criterion, optimizer)
         val_log = validate(config, val_loader, model, criterion)
 
         log_validation_images(my_writer, val_loader, model, global_step=epoch)
+
+        # Add this to your main training loop (after validation)
+        if epoch % 2 == 0:  # Every 2 epochs
+            visualize_single_sample(my_writer, model, val_loader, epoch)
 
         if config['scheduler'] == 'CosineAnnealingLR':
             scheduler.step()

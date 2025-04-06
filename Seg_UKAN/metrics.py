@@ -7,7 +7,7 @@ def _to_float(x):
         return x.detach().cpu().item()
     return float(x)
 
-def iou_score(output, target, threshold=0.5, smooth=1e-5):
+def iou_score(output, target, threshold=0.4, smooth=1e-5):
 
     output_ = (output > threshold).float()
     target_ = (target > threshold).float()
@@ -18,7 +18,7 @@ def iou_score(output, target, threshold=0.5, smooth=1e-5):
     
     return _to_float(iou)
 
-def dice_coef(output, target, threshold=0.5, smooth=1e-5):
+def dice_coef(output, target, threshold=0.4, smooth=1e-5):
 
     output_ = (output > threshold).float().flatten()
     target_ = (target > threshold).float().flatten()
@@ -28,7 +28,7 @@ def dice_coef(output, target, threshold=0.5, smooth=1e-5):
     
     return _to_float(dice)
 
-def accuracy_score(output, target, threshold=0.5, smooth=1e-5):
+def accuracy_score(output, target, threshold=0.4, smooth=1e-5):
 
     output_ = (output > threshold).float()
     target_ = (target > threshold).float()
@@ -40,7 +40,7 @@ def accuracy_score(output, target, threshold=0.5, smooth=1e-5):
     accuracy = (tp + tn + smooth) / (total + smooth)
     return _to_float(accuracy)
 
-def indicators(output, target, threshold=0.5):
+def indicators(output, target, threshold=0.4):
 
     output_ = (output > threshold).float()
     target_ = (target > threshold).float()
