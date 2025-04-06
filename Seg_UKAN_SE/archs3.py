@@ -36,6 +36,9 @@ from timm.layers import DropPath, to_2tuple, trunc_normal_
 import math
 from kan import KANLinear, KAN
 
+_all_ = ['UKAN_SEA'] 
+
+
 class SEAttention(nn.Module):
     def __init__(self, channel, reduction=16):
         super(SEAttention, self).__init__()
@@ -280,7 +283,7 @@ class PatchEmbed(nn.Module):
         x = self.norm(x)
         return x, H, W
 
-class UKAN_CBAM(nn.Module):
+class UKAN_SEA(nn.Module):
     def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, 
                  embed_dims=[256, 320, 512], no_kan=False, drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, 
                  depths=[1, 1, 1], **kwargs):
