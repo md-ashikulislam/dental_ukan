@@ -325,6 +325,8 @@ def log_validation_images(writer, val_loader, model, num_images=4, global_step=0
 
 def visualize_single_sample(writer, model, val_loader, epoch):
     """Visualize a single random sample with activations and metrics"""
+    import matplotlib.pyplot as plt
+    
     # Get a random batch
     inputs, targets, _ = next(iter(val_loader))
     
@@ -333,79 +335,81 @@ def visualize_single_sample(writer, model, val_loader, epoch):
     input_img = inputs[idx].unsqueeze(0).cuda()
     target_mask = targets[idx].unsqueeze(0).cuda()
     
-    
     # Get model output and activations
     model.eval()
     with torch.no_grad():
-        # Handle DataParallel case
         if isinstance(model, torch.nn.DataParallel):
-            # Get the underlying model
-            actual_model = model.module
-            output, activations = actual_model(input_img, return_activations=True)
+            output, activations = model.module(input_img, return_activations=True)
         else:
             output, activations = model(input_img, return_activations=True)
-        
         output = torch.sigmoid(output)
-        
+    
     # Calculate metrics
     iou = iou_score(output, target_mask)
     dice = dice_coef(output, target_mask)
     piou, thresholded_acts = calculate_plausibility_iou(activations, target_mask)
     
-    # Prepare images for visualization
-    input_img = input_img.cpu()
-    target_mask = target_mask.cpu()
-    output = output.cpu()
-    activations = activations.cpu()
-    thresholded_acts = thresholded_acts.cpu()
+    # Move tensors to CPU and process
+    input_img = input_img.cpu().squeeze()
+    target_mask = target_mask.cpu().squeeze()
+    output = output.cpu().squeeze()
+    activations = activations.cpu().squeeze()
+    thresholded_acts = thresholded_acts.cpu().squeeze()
     
-    # Normalize for visualization
-    input_img = (input_img - input_img.min()) / (input_img.max() - input_img.min() + 1e-6)
+    # Handle different input types
+    if len(input_img.shape) == 3:  # RGB image
+        input_img = input_img.permute(1, 2, 0)
+    elif len(input_img.shape) == 2:  # Grayscale
+        input_img = input_img.unsqueeze(-1).expand(-1, -1, 3)
+    
+    # Normalize activations
     act_normalized = (activations - activations.min()) / (activations.max() - activations.min() + 1e-6)
     
-    # Create image grid
+    # Create figure
     fig, axes = plt.subplots(2, 3, figsize=(18, 12))
     
     # Input image
-    axes[0,0].imshow(input_img.squeeze().permute(1,2,0) if input_img.shape[1]==3 else input_img.squeeze(), 
-                    cmap='gray')
+    axes[0,0].imshow(input_img)
     axes[0,0].set_title("Input Image")
     axes[0,0].axis('off')
     
     # Ground truth
-    axes[0,1].imshow(target_mask.squeeze(), cmap='gray')
+    axes[0,1].imshow(target_mask, cmap='gray')
     axes[0,1].set_title("Ground Truth")
     axes[0,1].axis('off')
     
     # Prediction
-    axes[0,2].imshow((output > 0.5).float().squeeze(), cmap='gray')
+    axes[0,2].imshow((output > 0.5).float(), cmap='gray')
     axes[0,2].set_title(f"Prediction (IoU: {iou:.2f}, Dice: {dice:.2f})")
     axes[0,2].axis('off')
     
-    # Activation heatmap
-    im = axes[1,0].imshow(act_normalized.squeeze(), cmap='jet')
+    # Activation heatmap (take mean across channels if needed)
+    if len(act_normalized.shape) == 3:  # (C, H, W)
+        act_to_show = act_normalized.mean(dim=0)  # Average across channels
+    else:
+        act_to_show = act_normalized
+    im = axes[1,0].imshow(act_to_show, cmap='jet')
     axes[1,0].set_title("Activation Heatmap")
     axes[1,0].axis('off')
-    plt.colorbar(im, ax=axes[1,0])
+    fig.colorbar(im, ax=axes[1,0])
     
     # Thresholded activations
-    axes[1,1].imshow(thresholded_acts.squeeze(), cmap='jet')
-    axes[1,1].set_title(f"Thresholded Activations (PIoU: {piou:.2f})")
+    if len(thresholded_acts.shape) == 3:
+        thresholded_acts = thresholded_acts.mean(dim=0)
+    axes[1,1].imshow(thresholded_acts, cmap='jet')
+    axes[1,1].set_title(f"Thresholded (PIoU: {piou:.2f})")
     axes[1,1].axis('off')
     
     # Overlay
-    axes[1,2].imshow(input_img.squeeze().permute(1,2,0) if input_img.shape[1]==3 else input_img.squeeze(), 
-                    cmap='gray')
-    axes[1,2].imshow(act_normalized.squeeze(), cmap='jet', alpha=0.5)
+    axes[1,2].imshow(input_img)
+    axes[1,2].imshow(act_to_show, cmap='jet', alpha=0.5)
     axes[1,2].set_title("Activation Overlay")
     axes[1,2].axis('off')
     
     plt.tight_layout()
-    
-    # Add to TensorBoard
     writer.add_figure('sample_visualization', fig, global_step=epoch)
     plt.close(fig)
-    
+
 def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
     """Calculate Plausibility IoU between thresholded activations and GT mask"""
     # Average across channels if multi-channel
