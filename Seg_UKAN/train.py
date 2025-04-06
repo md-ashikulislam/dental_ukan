@@ -12,11 +12,9 @@ import torch.backends.cudnn as cudnn
 import torch.nn as nn
 import torch.optim as optim
 import yaml
-import cv2
 import matplotlib.pyplot as plt
 
 from albumentations.augmentations import transforms
-from albumentations.augmentations import geometric
 import albumentations as A
 from albumentations import CLAHE
 
@@ -31,22 +29,12 @@ import archs
 
 import losses
 from dataset import Dataset
-
 from metrics import iou_score, indicators, dice_coef, accuracy_score
-
 from utils import AverageMeter, str2bool
 
 from tensorboardX import SummaryWriter
 from prettytable import PrettyTable
 
-import shutil
-import os
-import subprocess
-
-from pdb import set_trace as st
-
-
-from archs import UKAN  # Import the required model directly
 ARCH_NAMES = ['UKAN'] 
 # ARCH_NAMES = archs.__all__
 LOSS_NAMES = losses.__all__
@@ -299,6 +287,7 @@ def log_validation_images(writer, val_loader, model, num_images=4, global_step=0
 def visualize_single_sample(writer, model, val_loader, epoch):
     """Plot activations, prediction, and GT as separate full-size figures"""    
     # Get sample
+    torch.manual_seed(epoch)  # Makes selection consistent per epoch
     inputs, targets, _ = next(iter(val_loader))
     idx = torch.randint(0, inputs.size(0), (1,)).item()
     input_img = inputs[idx].unsqueeze(0).cuda()
@@ -490,10 +479,10 @@ def main():
         raise NotImplementedError
     
     # # Load the checkpoint
-    checkpoint = torch.load('/kaggle/input/checkpointukan/modelukan.pth')
+    # checkpoint = torch.load('/kaggle/input/checkpointukan/modelukan.pth')
 
-    model.load_state_dict(checkpoint['state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
+    # model.load_state_dict(checkpoint['state_dict'])
+    # optimizer.load_state_dict(checkpoint['optimizer'])
 
 
     dataset_name = config['dataset']

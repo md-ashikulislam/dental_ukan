@@ -304,6 +304,7 @@ def log_validation_images(writer, val_loader, model, num_images=4, global_step=0
 def visualize_single_sample(writer, model, val_loader, epoch):
     """Plot activations, prediction, and GT as separate full-size figures"""    
     # Get sample
+    torch.manual_seed(epoch)  # Makes selection consistent per epoch
     inputs, targets, _ = next(iter(val_loader))
     idx = torch.randint(0, inputs.size(0), (1,)).item()
     input_img = inputs[idx].unsqueeze(0).cuda()
