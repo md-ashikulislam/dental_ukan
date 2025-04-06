@@ -22,19 +22,37 @@ from kan import KANLinear, KAN
 
 _all_ = ['UKAN_CBAM'] 
 
-# Spatial Attention Module from CBAM (unchanged)
-class SpatialAttention(nn.Module):
-    def __init__(self, kernel_size=7):
-        super(SpatialAttention, self).__init__()
-        self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size//2, bias=False)
+import torch
+from torch import nn
+import torchvision
+from torch.autograd import Variable
+from torch.utils.data import DataLoader
+from torchvision import transforms
+from torchvision.utils import save_image
+import torch.nn.functional as F
+import os
+import matplotlib.pyplot as plt
+from timm.layers import DropPath, to_2tuple, trunc_normal_
+import math
+from kan import KANLinear, KAN
+
+class SEAttention(nn.Module):
+    def __init__(self, channel, reduction=16):
+        super(SEAttention, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.fc = nn.Sequential(
+            nn.Linear(channel, channel // reduction, bias=False),
+            nn.ReLU(inplace=True),
+            nn.Linear(channel // reduction, channel, bias=False)
+        )
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        avg_out = torch.mean(x, dim=1, keepdim=True)
-        max_out, _ = torch.max(x, dim=1, keepdim=True)
-        x = torch.cat([avg_out, max_out], dim=1)
-        x = self.conv(x)
-        return self.sigmoid(x)
+        b, c, _, _ = x.size()
+        y = self.avg_pool(x).view(b, c)
+        y = self.fc(y).view(b, c, 1, 1)
+        y = self.sigmoid(y)
+        return x * y.expand_as(x)
 
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
@@ -43,14 +61,14 @@ class KANLayer(nn.Module):
         hidden_features = hidden_features or in_features
         self.dim = in_features
         
-        grid_size=5
-        spline_order=3
-        scale_noise=0.1
-        scale_base=1.0
-        scale_spline=1.0
-        base_activation=torch.nn.SiLU
-        grid_eps=0.02
-        grid_range=[-1, 1]
+        grid_size = 5
+        spline_order = 3
+        scale_noise = 0.1
+        scale_base = 1.0
+        scale_spline = 1.0
+        base_activation = torch.nn.SiLU
+        grid_eps = 0.02
+        grid_range = [-1, 1]
 
         if not no_kan:
             self.fc1 = KANLinear(
@@ -93,16 +111,16 @@ class KANLayer(nn.Module):
             self.fc1 = nn.Linear(in_features, hidden_features)
             self.fc2 = nn.Linear(hidden_features, out_features)
             self.fc3 = nn.Linear(hidden_features, out_features)
-        
-        # Replace HybridAttention with just SpatialAttention
-        self.attn1 = SpatialAttention()
-        self.attn2 = SpatialAttention()
-        self.attn3 = SpatialAttention()
+
+        # Add SE Attention after each DW convolution
+        self.se1 = SEAttention(hidden_features)
+        self.se2 = SEAttention(hidden_features)
+        self.se3 = SEAttention(hidden_features)
 
         self.dwconv_1 = DW_bn_relu(hidden_features)
         self.dwconv_2 = DW_bn_relu(hidden_features)
         self.dwconv_3 = DW_bn_relu(hidden_features)
-        
+    
         self.drop = nn.Dropout(drop)
         self.apply(self._init_weights)
 
@@ -120,37 +138,33 @@ class KANLayer(nn.Module):
             m.weight.data.normal_(0, math.sqrt(2.0 / fan_out))
             if m.bias is not None:
                 m.bias.data.zero_()
-    
+
     def forward(self, x, H, W):
         B, N, C = x.shape
 
-        x = self.fc1(x.reshape(B*N,C))
-        x = x.reshape(B,N,C).contiguous()
-        x = x.reshape(B, C, H, W)
-        attn_weights = self.attn1(x)
-        x = x * attn_weights
-        x = x.reshape(B, N, C)
+        x = self.fc1(x.reshape(B*N, C))
+        x = x.reshape(B, N, C).contiguous()
         x = self.dwconv_1(x, H, W)
-        
-        x = self.fc2(x.reshape(B*N,C))
-        x = x.reshape(B,N,C).contiguous()
-        x = x.reshape(B, C, H, W)
-        attn_weights = self.attn2(x)
-        x = x * attn_weights
-        x = x.reshape(B, N, C)
+        x = x.transpose(1, 2).view(B, C, H, W)
+        x = self.se1(x)
+        x = x.flatten(2).transpose(1, 2)
+
+        x = self.fc2(x.reshape(B*N, C))
+        x = x.reshape(B, N, C).contiguous()
         x = self.dwconv_2(x, H, W)
-        
-        x = self.fc3(x.reshape(B*N,C))
-        x = x.reshape(B,N,C).contiguous()
-        x = x.reshape(B, C, H, W)
-        attn_weights = self.attn3(x)
-        x = x * attn_weights
-        x = x.reshape(B, N, C)
+        x = x.transpose(1, 2).view(B, C, H, W)
+        x = self.se2(x)
+        x = x.flatten(2).transpose(1, 2)
+
+        x = self.fc3(x.reshape(B*N, C))
+        x = x.reshape(B, N, C).contiguous()
         x = self.dwconv_3(x, H, W)
+        x = x.transpose(1, 2).view(B, C, H, W)
+        x = self.se3(x)
+        x = x.flatten(2).transpose(1, 2)
     
         return x
 
-# Rest of the imports and classes remain the same until ConvLayer and D_ConvLayer
 class ConvLayer(nn.Module):
     def __init__(self, in_ch, out_ch):
         super(ConvLayer, self).__init__()
@@ -162,13 +176,11 @@ class ConvLayer(nn.Module):
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True)
         )
-        # Replace HybridAttention with SpatialAttention
-        self.attn = SpatialAttention()
+        self.se = SEAttention(out_ch)  # Add SE attention
 
     def forward(self, input):
         x = self.conv(input)
-        attn_weights = self.attn(x)
-        x = x * attn_weights
+        x = self.se(x)
         return x
 
 class D_ConvLayer(nn.Module):
@@ -182,13 +194,11 @@ class D_ConvLayer(nn.Module):
             nn.BatchNorm2d(out_ch),
             nn.ReLU(inplace=True)
         )
-        # Replace HybridAttention with SpatialAttention
-        self.attn = SpatialAttention()
+        self.se = SEAttention(out_ch)  # Add SE attention
 
     def forward(self, input):
         x = self.conv(input)
-        attn_weights = self.attn(x)
-        x = x * attn_weights
+        x = self.se(x)
         return x
 class DW_bn_relu(nn.Module):
     def __init__(self, dim=768):
