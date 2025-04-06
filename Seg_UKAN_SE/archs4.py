@@ -5,49 +5,50 @@ from timm.layers import DropPath, to_2tuple, trunc_normal_
 import math
 from kan import KANLinear, KAN
 
-_all_ = ['UKAN_CA'] 
+_all_ = ['UKAN_CBAM'] 
 
-class CoordinatedAttention(nn.Module):
+class ChannelAttention(nn.Module):
     def __init__(self, in_channels, reduction_ratio=8):
-        super(CoordinatedAttention, self).__init__()
-        self.pool_h = nn.AdaptiveAvgPool2d((None, 1))
-        self.pool_w = nn.AdaptiveAvgPool2d((1, None))
+        super(ChannelAttention, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(1)
+        self.max_pool = nn.AdaptiveMaxPool2d(1)
         
-        mid_channels = max(8, in_channels // reduction_ratio)
-        
-        self.conv1 = nn.Conv2d(in_channels, mid_channels, kernel_size=1, stride=1, padding=0)
-        self.bn1 = nn.BatchNorm2d(mid_channels)
-        self.act = nn.ReLU(inplace=True)
-        
-        self.conv_h = nn.Conv2d(mid_channels, in_channels, kernel_size=1, stride=1, padding=0)
-        self.conv_w = nn.Conv2d(mid_channels, in_channels, kernel_size=1, stride=1, padding=0)
+        self.fc = nn.Sequential(
+            nn.Conv2d(in_channels, in_channels // reduction_ratio, 1, bias=False),
+            nn.ReLU(),
+            nn.Conv2d(in_channels // reduction_ratio, in_channels, 1, bias=False)
+        )
         self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
-        identity = x
-        
-        n, c, h, w = x.size()
-        
-        # Horizontal pooling
-        x_h = self.pool_h(x)
-        # Vertical pooling
-        x_w = self.pool_w(x).permute(0, 1, 3, 2)
-        
-        # Concatenate and transform
-        y = torch.cat([x_h, x_w], dim=2)
-        y = self.conv1(y)
-        y = self.bn1(y)
-        y = self.act(y)
-        
-        # Split and transform
-        x_h, x_w = torch.split(y, [h, w], dim=2)
-        x_w = x_w.permute(0, 1, 3, 2)
-        
-        # Attention maps
-        a_h = self.sigmoid(self.conv_h(x_h))
-        a_w = self.sigmoid(self.conv_w(x_w))
-        
-        return identity * a_h * a_w
+        avg_out = self.fc(self.avg_pool(x))
+        max_out = self.fc(self.max_pool(x))
+        out = avg_out + max_out
+        return self.sigmoid(out)
+
+class SpatialAttention(nn.Module):
+    def __init__(self, kernel_size=7):
+        super(SpatialAttention, self).__init__()
+        self.conv = nn.Conv2d(2, 1, kernel_size, padding=kernel_size//2, bias=False)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, x):
+        avg_out = torch.mean(x, dim=1, keepdim=True)
+        max_out, _ = torch.max(x, dim=1, keepdim=True)
+        x = torch.cat([avg_out, max_out], dim=1)
+        x = self.conv(x)
+        return self.sigmoid(x)
+
+class CBAM(nn.Module):
+    def __init__(self, in_channels, reduction_ratio=8, kernel_size=7):
+        super(CBAM, self).__init__()
+        self.channel_att = ChannelAttention(in_channels, reduction_ratio)
+        self.spatial_att = SpatialAttention(kernel_size)
+
+    def forward(self, x):
+        x = x * self.channel_att(x)
+        x = x * self.spatial_att(x)
+        return x
 
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
@@ -107,9 +108,9 @@ class KANLayer(nn.Module):
             self.fc2 = nn.Linear(hidden_features, out_features)
             self.fc3 = nn.Linear(hidden_features, out_features)
 
-        self.dwconv_1 = DW_bn_relu_ca(hidden_features)
-        self.dwconv_2 = DW_bn_relu_ca(hidden_features)
-        self.dwconv_3 = DW_bn_relu_ca(hidden_features)
+        self.dwconv_1 = DW_bn_relu_cbam(hidden_features)
+        self.dwconv_2 = DW_bn_relu_cbam(hidden_features)
+        self.dwconv_3 = DW_bn_relu_cbam(hidden_features)
         
         self.drop = nn.Dropout(drop)
         self.apply(self._init_weights)
@@ -146,13 +147,13 @@ class KANLayer(nn.Module):
     
         return x
 
-class DW_bn_relu_ca(nn.Module):
+class DW_bn_relu_cbam(nn.Module):
     def __init__(self, dim=768):
-        super(DW_bn_relu_ca, self).__init__()
+        super(DW_bn_relu_cbam, self).__init__()
         self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
         self.bn = nn.BatchNorm2d(dim)
         self.relu = nn.ReLU()
-        self.ca = CoordinatedAttention(dim)
+        self.cbam = CBAM(dim)
 
     def forward(self, x, H, W):
         B, N, C = x.shape
@@ -160,7 +161,7 @@ class DW_bn_relu_ca(nn.Module):
         x = self.dwconv(x)
         x = self.bn(x)
         x = self.relu(x)
-        x = self.ca(x)  # Coordinated Attention
+        x = self.cbam(x)  # CBAM Attention
         x = x.flatten(2).transpose(1, 2)
         return x
 
@@ -192,16 +193,46 @@ class KANBlock(nn.Module):
         x = x + self.drop_path(self.layer(self.norm2(x), H, W))
         return x
 
-class DWConv(nn.Module):
-    def __init__(self, dim=768):
-        super(DWConv, self).__init__()
-        self.dwconv = nn.Conv2d(dim, dim, 3, 1, 1, bias=True, groups=dim)
+class ConvLayer(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super(ConvLayer, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True)
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True)
+        )
+        self.cbam = CBAM(out_ch)
 
-    def forward(self, x, H, W):
-        B, N, C = x.shape
-        x = x.transpose(1, 2).view(B, C, H, W)
-        x = self.dwconv(x)
-        x = x.flatten(2).transpose(1, 2)
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.cbam(x)  # CBAM Attention
+        return x
+
+class D_ConvLayer(nn.Module):
+    def __init__(self, in_ch, out_ch):
+        super(D_ConvLayer, self).__init__()
+        self.conv1 = nn.Sequential(
+            nn.Conv2d(in_ch, in_ch, 3, padding=1),
+            nn.BatchNorm2d(in_ch),
+            nn.ReLU(inplace=True)
+        )
+        self.conv2 = nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(inplace=True)
+        )
+        self.cbam = CBAM(out_ch)
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.conv2(x)
+        x = self.cbam(x)  # CBAM Attention
         return x
 
 class PatchEmbed(nn.Module):
@@ -240,49 +271,7 @@ class PatchEmbed(nn.Module):
         x = self.norm(x)
         return x, H, W
 
-class ConvLayer(nn.Module):
-    def __init__(self, in_ch, out_ch):
-        super(ConvLayer, self).__init__()
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
-        )
-        self.conv2 = nn.Sequential(
-            nn.Conv2d(out_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
-        )
-        self.ca = CoordinatedAttention(out_ch)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.ca(x)  # Coordinated Attention
-        return x
-
-class D_ConvLayer(nn.Module):
-    def __init__(self, in_ch, out_ch):
-        super(D_ConvLayer, self).__init__()
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(in_ch, in_ch, 3, padding=1),
-            nn.BatchNorm2d(in_ch),
-            nn.ReLU(inplace=True)
-        )
-        self.conv2 = nn.Sequential(
-            nn.Conv2d(in_ch, out_ch, 3, padding=1),
-            nn.BatchNorm2d(out_ch),
-            nn.ReLU(inplace=True)
-        )
-        self.ca = CoordinatedAttention(out_ch)
-
-    def forward(self, x):
-        x = self.conv1(x)
-        x = self.conv2(x)
-        x = self.ca(x)  # Coordinated Attention
-        return x
-
-class UKAN_CA(nn.Module):
+class UKAN_CBAM(nn.Module):
     def __init__(self, num_classes, input_channels=3, deep_supervision=False, img_size=224, patch_size=16, in_chans=3, 
                  embed_dims=[256, 320, 512], no_kan=False, drop_rate=0., drop_path_rate=0., norm_layer=nn.LayerNorm, 
                  depths=[1, 1, 1], **kwargs):

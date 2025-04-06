@@ -26,11 +26,13 @@ from tqdm import tqdm
 from albumentations import RandomRotate90, Resize
 from albumentations import MedianBlur
 
-import archs,archs2,archs3
+import archs,archs2,archs3,archs4
 
 from archs import _all_ as archs_all
 from archs2 import _all_ as archs2_all
 from archs3 import _all_ as archs3_all
+from archs4 import _all_ as archs4_all
+
 
 import losses
 from dataset import Dataset
@@ -49,7 +51,7 @@ import subprocess
 from pdb import set_trace as st
 
 
-ARCH_NAMES = archs_all + archs2_all + archs3_all
+ARCH_NAMES = archs_all + archs2_all + archs3_all + archs4_all
 LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
 
