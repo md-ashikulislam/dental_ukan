@@ -4,6 +4,9 @@ import torch.nn.functional as F
 from timm.layers import DropPath, to_2tuple, trunc_normal_
 import math
 
+_all_ = ['UKAN_CBAM'] 
+
+
 class ChannelAttention(nn.Module):
     def __init__(self, in_channels, reduction_ratio=4):
         super(ChannelAttention, self).__init__()
