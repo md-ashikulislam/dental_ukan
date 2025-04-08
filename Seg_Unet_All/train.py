@@ -41,9 +41,6 @@ from utils import AverageMeter, str2bool
 from tensorboardX import SummaryWriter
 from prettytable import PrettyTable
 
-os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-
-
 from pdb import set_trace as st
 
 
