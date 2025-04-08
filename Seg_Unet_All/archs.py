@@ -161,7 +161,7 @@ class U_Net(nn.Module):
         self.Conv_1x1 = nn.Conv2d(64,output_ch,kernel_size=1,stride=1,padding=0)
 
 
-    def forward(self,x):
+    def forward(self,x, return_activations=False):
         # encoding path
         x1 = self.Conv1(x)
 
@@ -196,6 +196,10 @@ class U_Net(nn.Module):
         d2 = self.Up_conv2(d2)
 
         d1 = self.Conv_1x1(d2)
+
+        if return_activations:
+        # Return last decoder layer's activations (e.g., d2)
+            return d1, d2
 
         return d1
 
@@ -233,7 +237,7 @@ class R2U_Net(nn.Module):
         self.Conv_1x1 = nn.Conv2d(64,output_ch,kernel_size=1,stride=1,padding=0)
 
 
-    def forward(self,x):
+    def forward(self,x, return_activations=False):
         # encoding path
         x1 = self.RRCNN1(x)
 
@@ -267,6 +271,10 @@ class R2U_Net(nn.Module):
         d2 = self.Up_RRCNN2(d2)
 
         d1 = self.Conv_1x1(d2)
+
+        if return_activations:
+        # Return last decoder layer's activations (e.g., d2)
+            return d1, d2
 
         return d1
 
@@ -302,7 +310,7 @@ class AttU_Net(nn.Module):
         self.Conv_1x1 = nn.Conv2d(64,output_ch,kernel_size=1,stride=1,padding=0)
 
 
-    def forward(self,x):
+    def forward(self,x, return_activations=False):
         # encoding path
         x1 = self.Conv1(x)
 
@@ -340,6 +348,10 @@ class AttU_Net(nn.Module):
         d2 = self.Up_conv2(d2)
 
         d1 = self.Conv_1x1(d2)
+
+        if return_activations:
+        # Return last decoder layer's activations (e.g., d2)
+            return d1, d2
 
         return d1
 
@@ -381,7 +393,7 @@ class R2AttU_Net(nn.Module):
         self.Conv_1x1 = nn.Conv2d(64,output_ch,kernel_size=1,stride=1,padding=0)
 
 
-    def forward(self,x):
+    def forward(self,x, return_activations=False):
         # encoding path
         x1 = self.RRCNN1(x)
 
@@ -419,5 +431,9 @@ class R2AttU_Net(nn.Module):
         d2 = self.Up_RRCNN2(d2)
 
         d1 = self.Conv_1x1(d2)
+
+        if return_activations:
+        # Return last decoder layer's activations (e.g., d2)
+            return d1, d2
 
         return d1

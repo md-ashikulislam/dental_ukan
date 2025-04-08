@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 import yaml
 import cv2
+import matplotlib.pyplot as plt
 
 from albumentations.augmentations import transforms
 from albumentations.augmentations import geometric
@@ -262,28 +263,87 @@ def validate(config, val_loader, model, criterion):
                         ('specificity', avg_meters['specificity'].avg),
                         ('precision', avg_meters['precision'].avg)])
 
-def log_training_images(writer, train_loader, num_images=4, global_step=0):
-    """
-    Log training images and masks to TensorBoard.
+def visualize_single_sample(writer, model, val_loader, epoch):
+    """Plot activations, prediction, and GT as separate full-size figures"""    
+    # Get sample
+    torch.manual_seed(epoch)  # Makes selection consistent per epoch
+    inputs, targets, _ = next(iter(val_loader))
+    idx = torch.randint(0, inputs.size(0), (1,)).item()
+    input_img = inputs[idx].unsqueeze(0).cuda()
+    target_mask = targets[idx].unsqueeze(0).cuda()
     
-    Args:
-        writer (SummaryWriter): TensorBoard writer.
-        train_loader (DataLoader): Training data loader.
-        num_images (int): Number of images to log.
-        global_step (int): Global step for TensorBoard logging.
-    """
-    # Get a batch of training data
-    images, masks, _ = next(iter(train_loader))
+    # Forward pass
+    model.eval()
+    with torch.no_grad():
+        if isinstance(model, torch.nn.DataParallel):
+            output, activations = model.module(input_img, return_activations=True)
+        else:
+            output, activations = model(input_img, return_activations=True)
+        output = torch.sigmoid(output)
     
-    # Log only the first `num_images` images and masks
-    images = images[:num_images]
-    masks = masks[:num_images]
+    # Calculate metrics
+    iou = iou_score(output, target_mask)
+    dice = dice_coef(output, target_mask)
+    piou, _ = calculate_plausibility_iou(activations, target_mask)
     
-    # Log images
-    writer.add_images('train/images', images, global_step)
+    # Prepare tensors
+    input_img = input_img.cpu().squeeze()
+    target_mask = target_mask.cpu().squeeze()
+    output = output.cpu().squeeze()
+    activations = activations.cpu().squeeze()
     
-    # Log masks (convert to grayscale for visualization)
-    writer.add_images('train/masks', masks, global_step)
+    # Normalize activations (mean across channels if needed)
+    if len(activations.shape) == 3:
+        activations = activations.mean(dim=0)
+    activations = (activations - activations.min()) / (activations.max() - activations.min() + 1e-6)
+
+    # -----------------------------------------------
+    # 1. Activation Heatmap (Full Page)
+    plt.figure(figsize=(12, 10))
+    plt.imshow(activations, cmap='jet', vmin=0, vmax=1)
+    plt.title(f"Activation Map (PIoU: {piou:.2f})", fontsize=16, pad=20)
+    plt.axis('off')
+    cbar = plt.colorbar(fraction=0.046, pad=0.04)
+    cbar.ax.tick_params(labelsize=12)
+    writer.add_figure('activations/heatmap', plt.gcf(), epoch)
+    plt.close()
+    
+    # 2. Prediction Mask (Full Page)
+    plt.figure(figsize=(12, 10))
+    plt.imshow((output > 0.5).float(), cmap='gray')
+    plt.title(f"Prediction\nIoU: {iou:.2f}  Dice: {dice:.2f}", 
+              fontsize=16, pad=20)
+    plt.axis('off')
+    writer.add_figure('prediction/mask', plt.gcf(), epoch)
+    plt.close()
+    
+    # 3. Ground Truth (Full Page)
+    plt.figure(figsize=(12, 10))
+    plt.imshow(target_mask, cmap='gray')
+    plt.title("Ground Truth", fontsize=16, pad=20)
+    plt.axis('off')
+    writer.add_figure('ground_truth/mask', plt.gcf(), epoch)
+    plt.close()
+
+def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
+    """Calculate Plausibility IoU between thresholded activations and GT mask"""
+    # Average across channels if multi-channel
+    if activations.size(1) > 1:
+        activations = torch.mean(activations, dim=1, keepdim=True)
+    
+    # Calculate threshold value
+    flat_acts = activations.view(-1)
+    threshold = torch.quantile(flat_acts, threshold_percentile/100)
+    
+    # Threshold activations
+    thresholded = (activations > threshold).float()
+    
+    # Calculate IoU
+    intersection = (thresholded * gt_mask).sum()
+    union = (thresholded + gt_mask).clamp(0, 1).sum()
+    piou = (intersection / (union + 1e-6)).item()
+    
+    return piou, thresholded
 
 def log_validation_images(writer, val_loader, model, num_images=4, global_step=0):
     """
@@ -544,14 +604,15 @@ def main():
     for epoch in range(config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
 
-        # Log training images at the start of training
-        if epoch % 10 == 0:
-            log_training_images(my_writer, train_loader, global_step=epoch)
 
         train_log = train(config, train_loader, model, criterion, optimizer)
         val_log = validate(config, val_loader, model, criterion)
 
         log_validation_images(my_writer, val_loader, model, global_step=epoch)
+
+        # Add this to your main training loop (after validation)
+        if epoch % 2 == 0:  # Every 2 epochs
+            visualize_single_sample(my_writer, model, val_loader, epoch)
 
         if config['scheduler'] == 'CosineAnnealingLR':
             scheduler.step()
