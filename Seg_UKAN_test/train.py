@@ -624,17 +624,8 @@ def main():
     best_precision = 0
     trigger = 0
 
-    best_metrics = {
-        'iou': 0,
-        'dice': 0,
-        'accuracy': 0,
-        'recall': 0,
-        'specificity': 0,
-        'precision': 0,
-        # Initialize for all thresholds
-        **{f'iou_{t}': 0 for t in [0.4, 0.45, 0.5, 0.55, 0.6]},
-        **{f'dice_{t}': 0 for t in [0.4, 0.45, 0.5, 0.55, 0.6]}
-    }
+    thresholds = [0.4, 0.45, 0.5, 0.55, 0.6]
+    best_metrics = {}  # Store all metrics when best IoU is achieved
 
     for epoch in range(config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
@@ -667,8 +658,7 @@ def main():
         log['val_dice'].append(val_log['dice'])
         log['val_accuracy'].append(val_log['accuracy'])  # Add val accuracy
 
-                # Add threshold metrics to log
-        for thresh in [0.4, 0.45, 0.5, 0.55, 0.6]:
+        for thresh in thresholds:
             log[f'val_iou_{thresh}'] = val_log[f'iou_{thresh}']
             log[f'val_dice_{thresh}'] = val_log[f'dice_{thresh}']
 
@@ -687,36 +677,37 @@ def main():
         my_writer.add_scalar('val/best_accuracy_value', best_accuracy, global_step=epoch)
 
                 # Log threshold metrics
-        for thresh in [0.4, 0.45, 0.5, 0.55, 0.6]:
+        for thresh in thresholds:
             my_writer.add_scalar(f'val_thresholds/iou_{thresh}', val_log[f'iou_{thresh}'], global_step=epoch)
             my_writer.add_scalar(f'val_thresholds/dice_{thresh}', val_log[f'dice_{thresh}'], global_step=epoch)
 
-        trigger += 1
-        improved = False
+        current_best_iou = max([val_log[f'iou_{thresh}'] for thresh in thresholds])
 
-        # Check if any threshold improved
-        for thresh in [0.4, 0.45, 0.5, 0.55, 0.6]:
-            if val_log[f'iou_{thresh}'] > best_metrics[f'iou_{thresh}']:
-                best_metrics[f'iou_{thresh}'] = val_log[f'iou_{thresh}']
-                improved = True
-                
-            if val_log[f'dice_{thresh}'] > best_metrics[f'dice_{thresh}']:
-                best_metrics[f'dice_{thresh}'] = val_log[f'dice_{thresh}']
-                improved = True
 
-        # Save model if any threshold improved
-        if improved:
+        if current_best_iou > best_iou:
+            best_iou = current_best_iou
+            best_metrics = val_log.copy()  # Save all metrics at this point
+            best_threshold = [thresh for thresh in thresholds if val_log[f'iou_{thresh}'] == best_iou][0]
+
             checkpoint = {
                 'epoch': epoch,
                 'state_dict': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
+                'best_iou': best_iou,
+                'best_threshold': best_threshold,
                 'best_metrics': best_metrics
             }
             torch.save(checkpoint, f'{output_dir}/{exp_name}/model.pth')
-            print("=> saved best model")
-            print_metrics(val_log)  # Helper function to print all metrics
+            print(f"=> Saved best model")
+            print_metrics(best_metrics)  # Display all metrics
             trigger = 0
+        else:
+            trigger += 1
 
+        my_writer.add_scalar('val/best_iou_value', best_iou, global_step=epoch)
+        if best_metrics:
+            my_writer.add_scalar('val/best_dice_value', best_metrics['dice'], global_step=epoch)
+            my_writer.add_scalar('val/best_accuracy_value', best_metrics['accuracy'], global_step=epoch)
 
         if config['early_stopping'] > 0 and trigger >= config['early_stopping']:
              print("=> early stopping")
