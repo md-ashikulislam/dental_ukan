@@ -26,6 +26,7 @@ from torch.optim import lr_scheduler
 from tqdm import tqdm
 from albumentations import RandomRotate90, Resize
 from albumentations import MedianBlur
+from thop import profile, clever_format
 
 import archs
 from archs import U_Net, R2U_Net, AttU_Net, R2AttU_Net
@@ -407,6 +408,13 @@ def count_parameters(model):
     print(f"Total Trainable Parameters: {total_params:,}")
     return total_params
 
+def calculate_gflops(model, input_shape=(1, 1, 256, 256)):
+    """Calculate GFLOPS and parameters using thop."""
+    dummy_input = torch.randn(*input_shape).cuda()
+    flops, params = profile(model, inputs=(dummy_input,), verbose=False)
+    flops, params = clever_format([flops, params], "%.3f")  # Convert to GFLOPs/M
+    return flops, params
+
 def main():
     seed_torch()
     config = vars(parse_args())
@@ -460,6 +468,13 @@ def main():
     # Count parameters and print PrettyTable
     total_params = count_parameters(model)
     config['total_params'] = total_params  # Store in config for yaml
+
+    # Calculate and print GFLOPS
+    gflops, params_formatted = calculate_gflops(
+        model.module if isinstance(model, nn.DataParallel) else model,
+        input_shape=(1, config['input_channels'], config['input_h'], config['input_w'])
+    )
+    print(f"Model GFLOPS: {gflops}, Params: {params_formatted}")
 
     #FOR 1 GPUs
     # model = model.cuda()
