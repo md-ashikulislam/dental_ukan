@@ -13,6 +13,7 @@ import torch.nn as nn
 import torch.optim as optim
 import yaml
 import matplotlib.pyplot as plt
+from thop import profile, clever_format
 
 from albumentations.augmentations import transforms
 import albumentations as A
@@ -389,6 +390,15 @@ def count_parameters(model):
     print(f"Total Trainable Parameters: {total_params:,}")
     return total_params
 
+def calculate_gflops(model, input_shape=(1, 1, 256, 256)):
+    """Calculate GFLOPS and parameters using thop."""
+    device = next(model.parameters()).device  # Get model's device
+    dummy_input = torch.randn(*input_shape).to(device)  # Match device
+    flops, params = profile(model, inputs=(dummy_input,), verbose=False)
+    flops, params = clever_format([flops, params], "%.3f")
+    return flops, params
+
+
 def main():
     seed_torch()
     config = vars(parse_args())
@@ -421,6 +431,7 @@ def main():
         criterion = losses.__dict__[config['loss']]().cuda()
 
     cudnn.benchmark = True
+    criterion = criterion.cuda() 
 
     # create model
     model = archs.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
@@ -431,16 +442,20 @@ def main():
     total_params = count_parameters(model)
     config['total_params'] = total_params  # Store in config for yaml
 
-    #FOR 1 GPUs
-    # model = model.cuda()
+    # Calculate and print GFLOPS
+    gflops, params_formatted = calculate_gflops(
+        model.module if isinstance(model, nn.DataParallel) else model,
+        input_shape=(1, config['input_channels'], config['input_h'], config['input_w'])
+    )
+    print(f"Model GFLOPS: {gflops}, Params: {params_formatted}")
+
+    model = model.cuda()  # Move to CUDA
 
     #FOR 2 GPUs
     # Move model to multiple GPUs
     if torch.cuda.device_count() > 1:
       print(f"Using {torch.cuda.device_count()} GPUs!")
       model = torch.nn.DataParallel(model)
-    model = model.cuda()  # Move to CUDA
-
 
     param_groups = []
 
