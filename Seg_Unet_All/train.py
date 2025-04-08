@@ -41,7 +41,6 @@ from utils import AverageMeter, str2bool
 from tensorboardX import SummaryWriter
 from prettytable import PrettyTable
 
-from pdb import set_trace as st
 
 
 ARCH_NAMES = ['U_Net', 'R2U_Net', 'AttU_Net', 'R2AttU_Net']
