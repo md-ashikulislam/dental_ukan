@@ -55,7 +55,7 @@ class up_conv(nn.Module):
 
     def forward(self,x):
         x = self.up(x)
-        return x.contiguous()
+        return x
 
 class Recurrent_block(nn.Module):
     def __init__(self,ch_out,t=2):
