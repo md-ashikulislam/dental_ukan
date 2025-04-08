@@ -410,9 +410,10 @@ def count_parameters(model):
 
 def calculate_gflops(model, input_shape=(1, 1, 256, 256)):
     """Calculate GFLOPS and parameters using thop."""
-    dummy_input = torch.randn(*input_shape).cuda()
+    device = next(model.parameters()).device  # Get model's device
+    dummy_input = torch.randn(*input_shape).to(device)  # Match device
     flops, params = profile(model, inputs=(dummy_input,), verbose=False)
-    flops, params = clever_format([flops, params], "%.3f")  # Convert to GFLOPs/M
+    flops, params = clever_format([flops, params], "%.3f")
     return flops, params
 
 def main():
@@ -465,6 +466,16 @@ def main():
         # Initialize weights for other architectures
         archs.init_weights(model, init_type='kaiming')  # or your preferred init_type
 
+    #FOR 1 GPUs
+    # model = model.cuda()
+
+    #FOR 2 GPUs
+    # Move model to multiple GPUs
+    if torch.cuda.device_count() > 1:
+      print(f"Using {torch.cuda.device_count()} GPUs!")
+      model = torch.nn.DataParallel(model)
+    model = model.cuda()  # Move to CUDA
+
     # Count parameters and print PrettyTable
     total_params = count_parameters(model)
     config['total_params'] = total_params  # Store in config for yaml
@@ -475,16 +486,6 @@ def main():
         input_shape=(1, config['input_channels'], config['input_h'], config['input_w'])
     )
     print(f"Model GFLOPS: {gflops}, Params: {params_formatted}")
-
-    #FOR 1 GPUs
-    # model = model.cuda()
-
-    #FOR 2 GPUs
-    # Move model to multiple GPUs
-    if torch.cuda.device_count() > 1:
-      print(f"Using {torch.cuda.device_count()} GPUs!")
-      model = torch.nn.DataParallel(model)
-    model = model.cuda()  # Move to CUDA
 
     param_groups = []
 
