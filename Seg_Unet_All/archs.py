@@ -55,7 +55,7 @@ class up_conv(nn.Module):
 
     def forward(self,x):
         x = self.up(x)
-        return x.contiguous()
+        return x
 
 class Recurrent_block(nn.Module):
     def __init__(self,ch_out,t=2):
@@ -88,7 +88,6 @@ class RRCNN_block(nn.Module):
 
     def forward(self,x):
         x = self.Conv_1x1(x)
-        x = x.contiguous()  # Ensure contiguous memory
         x1 = self.RCNN(x)
         return x+x1
 
@@ -397,46 +396,41 @@ class R2AttU_Net(nn.Module):
     def forward(self,x, return_activations=False):
         # encoding path
         x1 = self.RRCNN1(x)
-        x1 = x1.contiguous()
 
         x2 = self.Maxpool(x1)
         x2 = self.RRCNN2(x2)
-        x2 = x2.contiguous()
 
         x3 = self.Maxpool(x2)
         x3 = self.RRCNN3(x3)
-        x3 = x3.contiguous()
 
         x4 = self.Maxpool(x3)
         x4 = self.RRCNN4(x4)
-        x4 = x4.contiguous()
 
         x5 = self.Maxpool(x4)
         x5 = self.RRCNN5(x5)
-        x5 = x5.contiguous()
 
         # decoding + concat path
-        d5 = self.Up5(x5).contiguous()
-        x4 = self.Att5(g=d5,x=x4).contiguous()
-        d5 = torch.cat((x4,d5),dim=1).contiguous()
-        d5 = self.Up_RRCNN5(d5).contiguous()
+        d5 = self.Up5(x5)
+        x4 = self.Att5(g=d5,x=x4)
+        d5 = torch.cat((x4,d5),dim=1)
+        d5 = self.Up_RRCNN5(d5)
         
-        d4 = self.Up4(d5).contiguous()
-        x3 = self.Att4(g=d4,x=x3).contiguous()
-        d4 = torch.cat((x3,d4),dim=1).contiguous()
-        d4 = self.Up_RRCNN4(d4).contiguous()
+        d4 = self.Up4(d5)
+        x3 = self.Att4(g=d4,x=x3)
+        d4 = torch.cat((x3,d4),dim=1)   
+        d4 = self.Up_RRCNN4(d4)
 
-        d3 = self.Up3(d4).contiguous()
-        x2 = self.Att3(g=d3,x=x2).contiguous()
-        d3 = torch.cat((x2,d3),dim=1).contiguous()
-        d3 = self.Up_RRCNN3(d3).contiguous()
+        d3 = self.Up3(d4)
+        x2 = self.Att3(g=d3,x=x2)
+        d3 = torch.cat((x2,d3),dim=1)
+        d3 = self.Up_RRCNN3(d3)
 
-        d2 = self.Up2(d3).contiguous()
-        x1 = self.Att2(g=d2,x=x1).contiguous()
-        d2 = torch.cat((x1,d2),dim=1).contiguous()
-        d2 = self.Up_RRCNN2(d2).contiguous()
+        d2 = self.Up2(d3)
+        x1 = self.Att2(g=d2,x=x1)
+        d2 = torch.cat((x1,d2),dim=1)
+        d2 = self.Up_RRCNN2(d2)
 
-        d1 = self.Conv_1x1(d2).contiguous()
+        d1 = self.Conv_1x1(d2)
 
         if return_activations:
         # Return last decoder layer's activations (e.g., d2)
