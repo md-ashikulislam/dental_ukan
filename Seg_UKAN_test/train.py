@@ -619,9 +619,6 @@ def main():
     best_iou = 0
     best_dice= 0
     best_accuracy= 0
-    best_recall = 0
-    best_specificity = 0
-    best_precision = 0
     trigger = 0
 
     thresholds = [0.4, 0.45, 0.5, 0.55, 0.6]
@@ -698,7 +695,7 @@ def main():
                 'best_metrics': best_metrics
             }
             torch.save(checkpoint, f'{output_dir}/{exp_name}/model.pth')
-            print(f"=> Saved best model")
+            print(f"=> Saved best model with IoU {best_iou:.4f} at threshold {best_threshold}")
             print_metrics(best_metrics)  # Display all metrics
             trigger = 0
         else:
@@ -708,6 +705,7 @@ def main():
         if best_metrics:
             my_writer.add_scalar('val/best_dice_value', best_metrics['dice'], global_step=epoch)
             my_writer.add_scalar('val/best_accuracy_value', best_metrics['accuracy'], global_step=epoch)
+
 
         if config['early_stopping'] > 0 and trigger >= config['early_stopping']:
              print("=> early stopping")
