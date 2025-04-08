@@ -448,7 +448,7 @@ def main():
         criterion = losses.__dict__[config['loss']]().cuda()
 
     cudnn.benchmark = True
-
+    criterion = criterion.cuda() 
 
     if config['arch'] in ['R2U_Net', 'R2AttU_Net']:
         model = archs.__dict__[config['arch']](
