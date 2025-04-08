@@ -466,15 +466,13 @@ def main():
         # Initialize weights for other architectures
         archs.init_weights(model, init_type='kaiming')  # or your preferred init_type
 
-    #FOR 1 GPUs
-    # model = model.cuda()
+    model = model.cuda()
 
     #FOR 2 GPUs
     # Move model to multiple GPUs
     if torch.cuda.device_count() > 1:
       print(f"Using {torch.cuda.device_count()} GPUs!")
       model = torch.nn.DataParallel(model)
-    model = model.cuda()  # Move to CUDA
 
     # Count parameters and print PrettyTable
     total_params = count_parameters(model)
