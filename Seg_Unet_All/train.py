@@ -450,15 +450,15 @@ def main():
         raise NotImplementedError
     
     # Load the checkpoint
-    checkpoint = torch.load('/kaggle/input/checkpoint62/model62.pth')
+    # checkpoint = torch.load('/kaggle/input/checkpoint62/model62.pth')
 
-    model.load_state_dict(checkpoint['state_dict'])
-    optimizer.load_state_dict(checkpoint['optimizer'])
+    # model.load_state_dict(checkpoint['state_dict'])
+    # optimizer.load_state_dict(checkpoint['optimizer'])
 
 
     dataset_name = config['dataset']
 
-    if dataset_name == 'Dental' or 'Dental_Final_Dataset':
+    if dataset_name == 'Dental' or 'Dental_Final_Dataset' or 'new_dataset':
        img_ext = '.JPG'       
        mask_ext = '.jpg'
     
