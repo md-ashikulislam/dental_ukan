@@ -25,6 +25,7 @@ from torch.optim import lr_scheduler
 from tqdm import tqdm
 from albumentations import RandomRotate90, Resize
 from albumentations import MedianBlur
+from metrics import evaluate_multiple_thresholds 
 
 import archs
 
@@ -189,15 +190,19 @@ def train(config, train_loader, model, criterion, optimizer):
                         ('accuracy', avg_meters['accuracy'].avg)])  # Return accuracy
 
 def validate(config, val_loader, model, criterion):
-    avg_meters = {'loss': AverageMeter(),
-                  'iou': AverageMeter(),
-                  'dice': AverageMeter(),
-                  'accuracy': AverageMeter(),
-                  'recall': AverageMeter(),
-                  'specificity': AverageMeter(),
-                  'precision': AverageMeter()}
+    avg_meters = {
+        'loss': AverageMeter(),
+        'iou': AverageMeter(),
+        'dice': AverageMeter(),
+        'accuracy': AverageMeter(),
+        'recall': AverageMeter(),
+        'specificity': AverageMeter(),
+        'precision': AverageMeter(),
+        # Add meters for each threshold
+        'iou_thresholds': {t: AverageMeter() for t in [0.4, 0.45, 0.5, 0.55, 0.6]},
+        'dice_thresholds': {t: AverageMeter() for t in [0.4, 0.45, 0.5, 0.55, 0.6]}
+    }
 
-    # switch to evaluate mode
     model.eval()
 
     with torch.no_grad():
@@ -214,14 +219,17 @@ def validate(config, val_loader, model, criterion):
                     loss += criterion(output, target)
                 loss /= len(outputs)
                 output = outputs[-1]
-
             else:
                 output = model(input)
                 loss = criterion(output, target)
 
-            # Get all metrics at once
+            # Get all metrics at default threshold (0.4)
             iou, dice, recall, specificity, precision, accuracy = indicators(output, target)
 
+            # Get multi-threshold metrics
+            threshold_results = evaluate_multiple_thresholds(output, target)
+
+            # Update main metrics
             avg_meters['loss'].update(loss.item(), input.size(0))
             avg_meters['iou'].update(iou, input.size(0))
             avg_meters['dice'].update(dice, input.size(0))
@@ -230,25 +238,37 @@ def validate(config, val_loader, model, criterion):
             avg_meters['specificity'].update(specificity, input.size(0))
             avg_meters['precision'].update(precision, input.size(0))
 
-            postfix = OrderedDict([
-                ('l', avg_meters['loss'].avg),
-                ('i', avg_meters['iou'].avg),
-                ('dc', avg_meters['dice'].avg),
-                ('acc', avg_meters['accuracy'].avg)  # Add accuracy to postfix
-            ])
+            # Update threshold-specific metrics
+            for thresh, metrics in threshold_results.items():
+                avg_meters['iou_thresholds'][thresh].update(metrics['iou'], input.size(0))
+                avg_meters['dice_thresholds'][thresh].update(metrics['dice'], input.size(0))
 
+            postfix = OrderedDict([
+                ('loss', avg_meters['loss'].avg),
+                ('iou', avg_meters['iou'].avg),
+                ('dice', avg_meters['dice'].avg),
+            ])
             pbar.set_postfix(postfix)
             pbar.update(1)
         pbar.close()
 
+    # Prepare results dictionary
+    results = OrderedDict([
+        ('loss', avg_meters['loss'].avg),
+        ('iou', avg_meters['iou'].avg),
+        ('dice', avg_meters['dice'].avg),
+        ('accuracy', avg_meters['accuracy'].avg),
+        ('recall', avg_meters['recall'].avg),
+        ('specificity', avg_meters['specificity'].avg),
+        ('precision', avg_meters['precision'].avg),
+    ])
+    
+    # Add threshold results
+    for thresh in [0.4, 0.45, 0.5, 0.55, 0.6]:
+        results[f'iou_{thresh}'] = avg_meters['iou_thresholds'][thresh].avg
+        results[f'dice_{thresh}'] = avg_meters['dice_thresholds'][thresh].avg
 
-    return OrderedDict([('loss', avg_meters['loss'].avg),
-                        ('iou', avg_meters['iou'].avg),
-                        ('dice', avg_meters['dice'].avg),
-                        ('accuracy', avg_meters['accuracy'].avg),
-                        ('recall', avg_meters['recall'].avg),
-                        ('specificity', avg_meters['specificity'].avg),
-                        ('precision', avg_meters['precision'].avg)])
+    return results
 
 def visualize_single_sample(writer, model, val_loader, epoch):
     """Plot activations, prediction, and GT as separate full-size figures"""    
@@ -342,6 +362,24 @@ def seed_torch(seed=1029):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
+def print_metrics(metrics):
+    """Helper function to print metrics in a readable format"""
+    print("\nCurrent Metrics:")
+    print("-" * 40)
+    print(f"{'Metric':<15}{'Value':>10}")
+    print("-" * 40)
+    
+    # Print core metrics
+    core_metrics = ['iou', 'dice', 'accuracy', 'recall', 'specificity', 'precision']
+    for metric in core_metrics:
+        print(f"{metric:<15}{metrics[metric]:>10.4f}")
+    
+    # Print threshold metrics
+    print("\nThreshold Metrics:")
+    for thresh in [0.4, 0.45, 0.5, 0.55, 0.6]:
+        print(f"IoU@{thresh:.2f}: {metrics[f'iou_{thresh}']:.4f}  Dice@{thresh:.2f}: {metrics[f'dice_{thresh}']:.4f}")
+    print("-" * 40 + "\n")
+
 def count_parameters(model):
     """Count and display trainable parameters using PrettyTable"""
     table = PrettyTable(["Module", "Parameters"])
@@ -362,7 +400,6 @@ def calculate_gflops(model, input_shape=(1, 1, 256, 256)):
     flops, params = profile(model, inputs=(dummy_input,), verbose=False)
     flops, params = clever_format([flops, params], "%.3f")
     return flops, params
-
 
 def main():
     seed_torch()
@@ -546,10 +583,10 @@ def main():
     best_iou = 0
     best_dice= 0
     best_accuracy= 0
-    best_recall = 0
-    best_specificity = 0
-    best_precision = 0
     trigger = 0
+
+    thresholds = [0.4, 0.45, 0.5, 0.55, 0.6]
+    best_metrics = {}  # Store all metrics when best IoU is achieved
 
     for epoch in range(config['epochs']):
         print('Epoch [%d/%d]' % (epoch, config['epochs']))
@@ -559,7 +596,7 @@ def main():
         val_log = validate(config, val_loader, model, criterion)
 
         # Add this to your main training loop (after validation)
-        if epoch % 5 == 0:  # Every 2 epochs
+        if epoch % 2 == 0:  # Every 2 epochs
             visualize_single_sample(my_writer, model, val_loader, epoch)
 
         if config['scheduler'] == 'CosineAnnealingLR':
@@ -580,6 +617,10 @@ def main():
         log['val_dice'].append(val_log['dice'])
         log['val_accuracy'].append(val_log['accuracy'])  # Add val accuracy
 
+        for thresh in thresholds:
+            log[f'val_iou_{thresh}'] = val_log[f'iou_{thresh}']
+            log[f'val_dice_{thresh}'] = val_log[f'dice_{thresh}']
+
         pd.DataFrame(log).to_csv(f'{output_dir}/{exp_name}/log.csv', index=False)
 
         my_writer.add_scalar('train/loss', train_log['loss'], global_step=epoch)
@@ -594,33 +635,38 @@ def main():
         my_writer.add_scalar('val/best_dice_value', best_dice, global_step=epoch)
         my_writer.add_scalar('val/best_accuracy_value', best_accuracy, global_step=epoch)
 
-        trigger += 1
+                # Log threshold metrics
+        for thresh in thresholds:
+            my_writer.add_scalar(f'val_thresholds/iou_{thresh}', val_log[f'iou_{thresh}'], global_step=epoch)
+            my_writer.add_scalar(f'val_thresholds/dice_{thresh}', val_log[f'dice_{thresh}'], global_step=epoch)
 
-        if val_log['iou'] > best_iou:
+        current_best_iou = max([val_log[f'iou_{thresh}'] for thresh in thresholds])
+
+
+        if current_best_iou > best_iou:
+            best_iou = current_best_iou
+            best_metrics = val_log.copy()  # Save all metrics at this point
+            best_threshold = [thresh for thresh in thresholds if val_log[f'iou_{thresh}'] == best_iou][0]
+
             checkpoint = {
                 'epoch': epoch,
                 'state_dict': model.state_dict(),
                 'optimizer': optimizer.state_dict(),
                 'best_iou': best_iou,
-                'best_dice': best_dice,
-                'best_accuracy': best_accuracy
+                'best_threshold': best_threshold,
+                'best_metrics': best_metrics
             }
             torch.save(checkpoint, f'{output_dir}/{exp_name}/model.pth')
-            best_accuracy = val_log['accuracy']
-            best_iou = val_log['iou']
-            best_dice = val_log['dice']
-            best_recall = val_log['recall']
-            best_specificity = val_log['specificity']
-            best_precision = val_log['precision']
-
-            print("=> saved best model")
-            print('Accuracy: %.4f' % best_accuracy)
-            print('IoU: %.4f' % best_iou)
-            print('Dice: %.4f' % best_dice)
-            print('Recall: %.4f' % best_recall)
-            print('specificity: %.4f' % best_specificity)
-            print('precision: %.4f' % best_precision)
+            print(f"=> Saved best model with IoU {best_iou:.4f} at threshold {best_threshold}")
+            print_metrics(best_metrics)  # Display all metrics
             trigger = 0
+        else:
+            trigger += 1
+
+        my_writer.add_scalar('val/best_iou_value', best_iou, global_step=epoch)
+        if best_metrics:
+            my_writer.add_scalar('val/best_dice_value', best_metrics['dice'], global_step=epoch)
+            my_writer.add_scalar('val/best_accuracy_value', best_metrics['accuracy'], global_step=epoch)
 
 
         if config['early_stopping'] > 0 and trigger >= config['early_stopping']:

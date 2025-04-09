@@ -37,20 +37,7 @@ def accuracy_score(output, target, threshold=0.5, smooth=1e-5):
     accuracy = (tp + tn + smooth) / (total + smooth)
     return _to_float(accuracy)
 
-def indicators(output, target, threshold=None):
-
-    if threshold is None:
-        # Find best threshold if none provided
-        thresholds = [0.4, 0.45, 0.5, 0.55, 0.6]
-        best_iou = 0
-        best_thresh = 0.5
-        for thresh in thresholds:
-            current_iou = iou_score(output, target, threshold=thresh)
-            if current_iou > best_iou:
-                best_iou = current_iou
-                best_thresh = thresh
-        threshold = best_thresh
-    
+def indicators(output, target, threshold=0.5):
     output_ = (output > threshold).float()
     target_ = (target > threshold).float()
     
@@ -60,24 +47,18 @@ def indicators(output, target, threshold=None):
     fn = target_.sum() - tp
     tn = output_.numel() - (tp + fp + fn)
     
-    # Compute metrics with smoothing
-    smooth = 1e-5
+    # Compute metrics
     iou_ = iou_score(output, target, threshold)
     dice_ = dice_coef(output, target, threshold)
-    accuracy_ = (tp + tn + smooth) / (output_.numel() + smooth)
-    precision_ = tp / (tp + fp + smooth)
-    recall_ = tp / (tp + fn + smooth)
-    specificity_ = tn / (tn + fp + smooth)
+    accuracy_ = accuracy_score(output, target, threshold)
     
-    return {
-        'iou': _to_float(iou_),
-        'dice': _to_float(dice_),
-        'accuracy': _to_float(accuracy_),
-        'precision': _to_float(precision_),
-        'recall': _to_float(recall_),
-        'specificity': _to_float(specificity_),
-        'threshold': threshold  # Return the threshold used
-    }
+    # Calculate rates with smoothing
+    smooth = 1e-5
+    precision_ = _to_float(tp / (tp + fp + smooth))
+    recall_ = _to_float(tp / (tp + fn + smooth))
+    specificity_ = _to_float(tn / (tn + fp + smooth))
+    
+    return iou_, dice_, recall_, specificity_, precision_, accuracy_
 
 def evaluate_multiple_thresholds(output, target, thresholds=[0.4, 0.45, 0.5, 0.55, 0.6]):
     results = {}
