@@ -192,15 +192,7 @@ def train(config, train_loader, model, criterion, optimizer):
 def validate(config, val_loader, model, criterion):
     avg_meters = {
         'loss': AverageMeter(),
-        'iou': AverageMeter(),
-        'dice': AverageMeter(),
-        'accuracy': AverageMeter(),
-        'recall': AverageMeter(),
-        'specificity': AverageMeter(),
-        'precision': AverageMeter(),
-        # Add meters for each threshold
-        'iou_thresholds': {t: AverageMeter() for t in [0.4, 0.45, 0.5, 0.55, 0.6]},
-        'dice_thresholds': {t: AverageMeter() for t in [0.4, 0.45, 0.5, 0.55, 0.6]}
+        'metrics': AverageMeterDict()  # Custom meter that handles dicts
     }
 
     model.eval()
@@ -223,52 +215,45 @@ def validate(config, val_loader, model, criterion):
                 output = model(input)
                 loss = criterion(output, target)
 
-            # Get all metrics at default threshold (0.4)
-            iou, dice, recall, specificity, precision, accuracy = indicators(output, target)
-
-            # Get multi-threshold metrics
-            threshold_results = evaluate_multiple_thresholds(output, target)
-
-            # Update main metrics
-            avg_meters['loss'].update(loss.item(), input.size(0))
-            avg_meters['iou'].update(iou, input.size(0))
-            avg_meters['dice'].update(dice, input.size(0))
-            avg_meters['accuracy'].update(accuracy, input.size(0))
-            avg_meters['recall'].update(recall, input.size(0))
-            avg_meters['specificity'].update(specificity, input.size(0))
-            avg_meters['precision'].update(precision, input.size(0))
-
-            # Update threshold-specific metrics
-            for thresh, metrics in threshold_results.items():
-                avg_meters['iou_thresholds'][thresh].update(metrics['iou'], input.size(0))
-                avg_meters['dice_thresholds'][thresh].update(metrics['dice'], input.size(0))
+            # Get metrics with automatic threshold selection
+            metrics = indicators(output, target, threshold=None)
+            metrics['loss'] = loss.item()
+            
+            # Update meters
+            avg_meters['loss'].update(metrics['loss'], input.size(0))
+            avg_meters['metrics'].update(metrics, input.size(0))
 
             postfix = OrderedDict([
                 ('loss', avg_meters['loss'].avg),
-                ('iou', avg_meters['iou'].avg),
-                ('dice', avg_meters['dice'].avg),
+                ('iou', avg_meters['metrics'].avg['iou']),
+                ('dice', avg_meters['metrics'].avg['dice']),
+                ('threshold', avg_meters['metrics'].avg['threshold'])
             ])
             pbar.set_postfix(postfix)
             pbar.update(1)
         pbar.close()
 
-    # Prepare results dictionary
-    results = OrderedDict([
-        ('loss', avg_meters['loss'].avg),
-        ('iou', avg_meters['iou'].avg),
-        ('dice', avg_meters['dice'].avg),
-        ('accuracy', avg_meters['accuracy'].avg),
-        ('recall', avg_meters['recall'].avg),
-        ('specificity', avg_meters['specificity'].avg),
-        ('precision', avg_meters['precision'].avg),
-    ])
-    
-    # Add threshold results
-    for thresh in [0.4, 0.45, 0.5, 0.55, 0.6]:
-        results[f'iou_{thresh}'] = avg_meters['iou_thresholds'][thresh].avg
-        results[f'dice_{thresh}'] = avg_meters['dice_thresholds'][thresh].avg
+    return avg_meters['metrics'].avg
 
-    return results
+class AverageMeterDict:
+    """Custom meter that handles dictionaries of metrics"""
+    def __init__(self):
+        self.reset()
+        
+    def reset(self):
+        self.sum = {}
+        self.count = 0
+        
+    def update(self, metrics_dict, n=1):
+        for key, value in metrics_dict.items():
+            if key not in self.sum:
+                self.sum[key] = 0
+            self.sum[key] += value * n
+        self.count += n
+        
+    @property
+    def avg(self):
+        return {k: v / self.count for k, v in self.sum.items()}
 
 def visualize_single_sample(writer, model, val_loader, epoch):
     """Plot activations, prediction, and GT as separate full-size figures"""    
