@@ -198,9 +198,11 @@ def validate(config, val_loader, model, criterion):
         'recall': AverageMeter(),
         'specificity': AverageMeter(),
         'precision': AverageMeter(),
+        'f1': AverageMeter(),
         # Add meters for each threshold
         'iou_thresholds': {t: AverageMeter() for t in [0.4, 0.45, 0.5, 0.55, 0.6]},
-        'dice_thresholds': {t: AverageMeter() for t in [0.4, 0.45, 0.5, 0.55, 0.6]}
+        'dice_thresholds': {t: AverageMeter() for t in [0.4, 0.45, 0.5, 0.55, 0.6]},
+        'f1_thresholds': {t: AverageMeter() for t in [0.4, 0.45, 0.5, 0.55, 0.6]}
     }
 
     model.eval()
@@ -224,8 +226,7 @@ def validate(config, val_loader, model, criterion):
                 loss = criterion(output, target)
 
             # Get all metrics at default threshold (0.4)
-            iou, dice, recall, specificity, precision, accuracy = indicators(output, target)
-
+            iou, dice, recall, specificity, precision, accuracy, f1 = indicators(output, target)
             # Get multi-threshold metrics
             threshold_results = evaluate_multiple_thresholds(output, target)
 
@@ -237,6 +238,7 @@ def validate(config, val_loader, model, criterion):
             avg_meters['recall'].update(recall, input.size(0))
             avg_meters['specificity'].update(specificity, input.size(0))
             avg_meters['precision'].update(precision, input.size(0))
+            avg_meters['f1'].update(f1, input.size(0)) 
 
             # Update threshold-specific metrics
             for thresh, metrics in threshold_results.items():
@@ -261,6 +263,7 @@ def validate(config, val_loader, model, criterion):
         ('recall', avg_meters['recall'].avg),
         ('specificity', avg_meters['specificity'].avg),
         ('precision', avg_meters['precision'].avg),
+        ('f1', avg_meters['f1'].avg)
     ])
     
     # Add threshold results
@@ -370,7 +373,7 @@ def print_metrics(metrics):
     print("-" * 40)
     
     # Print core metrics
-    core_metrics = ['iou', 'dice', 'accuracy', 'recall', 'specificity', 'precision']
+    core_metrics = ['iou', 'dice', 'accuracy', 'recall', 'specificity', 'precision', 'f1']
     for metric in core_metrics:
         print(f"{metric:<15}{metrics[metric]:>10.4f}")
     
@@ -574,10 +577,12 @@ def main():
         ('loss', []),
         ('iou', []),
         ('accuracy', []),  # Add accuracy logging
+        ('f1', []),
         ('val_loss', []),
         ('val_iou', []),
         ('val_dice', []),
         ('val_accuracy', []),  # Add val_accuracy
+        ('val_f1', []),
     ])
 
     best_iou = 0
