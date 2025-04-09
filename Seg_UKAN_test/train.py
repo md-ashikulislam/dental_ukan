@@ -270,41 +270,6 @@ def validate(config, val_loader, model, criterion):
 
     return results
 
-def log_validation_images(writer, val_loader, model, num_images=4, global_step=0):
-    """
-    Log validation images, masks, and predictions to TensorBoard.
-    
-    Args:
-        writer (SummaryWriter): TensorBoard writer.
-        val_loader (DataLoader): Validation data loader.
-        model (nn.Module): Trained model.
-        num_images (int): Number of images to log.
-        global_step (int): Global step for TensorBoard logging.
-    """
-    # Get a batch of validation data
-    images, masks, _ = next(iter(val_loader))
-    images = images.cuda()
-    masks = masks.cuda()
-    
-    # Run the model to get predictions
-    model.eval()
-    with torch.no_grad():
-        predictions = model(images)
-        if isinstance(predictions, list):  # Handle deep supervision
-            predictions = predictions[-1]
-    
-    # Log only the first `num_images` images, masks, and predictions
-    images = images[:num_images].cpu()
-    masks = masks[:num_images].cpu()
-    predictions = predictions[:num_images].cpu()
-    
-    # Log validation images
-    writer.add_images('val/images', images, global_step)
-    
-    # Log ground truth masks (convert to grayscale for visualization)
-    writer.add_images('val/masks', masks, global_step)
-    writer.add_images('val/predictions', predictions, global_step)
-
 def visualize_single_sample(writer, model, val_loader, epoch):
     """Plot activations, prediction, and GT as separate full-size figures"""    
     # Get sample
@@ -631,10 +596,8 @@ def main():
         train_log = train(config, train_loader, model, criterion, optimizer)
         val_log = validate(config, val_loader, model, criterion)
 
-        log_validation_images(my_writer, val_loader, model, global_step=epoch)
-
         # Add this to your main training loop (after validation)
-        if epoch % 2 == 0:  # Every 2 epochs
+        if epoch % 5 == 0:  # Every 5 epochs
             visualize_single_sample(my_writer, model, val_loader, epoch)
 
         if config['scheduler'] == 'CosineAnnealingLR':

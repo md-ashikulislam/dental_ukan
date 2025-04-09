@@ -8,7 +8,6 @@ def _to_float(x):
     return float(x)
 
 def iou_score(output, target, threshold=0.5, smooth=1e-5):
-
     output_ = (output > threshold).float()
     target_ = (target > threshold).float()
     
@@ -19,7 +18,6 @@ def iou_score(output, target, threshold=0.5, smooth=1e-5):
     return _to_float(iou)
 
 def dice_coef(output, target, threshold=0.5, smooth=1e-5):
-
     output_ = (output > threshold).float().flatten()
     target_ = (target > threshold).float().flatten()
     
@@ -29,7 +27,6 @@ def dice_coef(output, target, threshold=0.5, smooth=1e-5):
     return _to_float(dice)
 
 def accuracy_score(output, target, threshold=0.5, smooth=1e-5):
-
     output_ = (output > threshold).float()
     target_ = (target > threshold).float()
     
@@ -41,7 +38,6 @@ def accuracy_score(output, target, threshold=0.5, smooth=1e-5):
     return _to_float(accuracy)
 
 def indicators(output, target, threshold=0.5):
-
     output_ = (output > threshold).float()
     target_ = (target > threshold).float()
     
@@ -63,3 +59,17 @@ def indicators(output, target, threshold=0.5):
     specificity_ = _to_float(tn / (tn + fp + smooth))
     
     return iou_, dice_, recall_, specificity_, precision_, accuracy_
+
+def evaluate_multiple_thresholds(output, target, thresholds=[0.4, 0.45, 0.5, 0.55, 0.6]):
+    results = {}
+    for thresh in thresholds:
+        iou, dice, recall, specificity, precision, accuracy = indicators(output, target, threshold=thresh)
+        results[thresh] = {
+            'iou': iou,
+            'dice': dice,
+            'recall': recall,
+            'specificity': specificity,
+            'precision': precision,
+            'accuracy': accuracy
+        }
+    return results
