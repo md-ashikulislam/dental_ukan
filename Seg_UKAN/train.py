@@ -271,7 +271,7 @@ def validate(config, val_loader, model, criterion):
     return results
 
 def visualize_single_sample(writer, model, val_loader, epoch):
-    """Plot activations, prediction, and GT as separate full-size figures"""    
+
     # Get sample
     torch.manual_seed(epoch)  # Makes selection consistent per epoch
     inputs, targets, _ = next(iter(val_loader))
@@ -317,7 +317,7 @@ def visualize_single_sample(writer, model, val_loader, epoch):
     
     # 2. Prediction Mask (Full Page)
     plt.figure(figsize=(12, 10))
-    plt.imshow((output > 0.5).float(), cmap='gray')
+    plt.imshow((output > 0.6).float(), cmap='gray')
     plt.title(f"Prediction\nIoU: {iou:.2f}  Dice: {dice:.2f}", 
               fontsize=16, pad=20)
     plt.axis('off')
@@ -381,7 +381,7 @@ def print_metrics(metrics):
     print("-" * 40 + "\n")
 
 def count_parameters(model):
-    """Count and display trainable parameters using PrettyTable"""
+
     table = PrettyTable(["Module", "Parameters"])
     total_params = 0
     for name, param in model.named_parameters():
@@ -635,7 +635,7 @@ def main():
         my_writer.add_scalar('val/best_dice_value', best_dice, global_step=epoch)
         my_writer.add_scalar('val/best_accuracy_value', best_accuracy, global_step=epoch)
 
-                # Log threshold metrics
+        # Log threshold metrics
         for thresh in thresholds:
             my_writer.add_scalar(f'val_thresholds/iou_{thresh}', val_log[f'iou_{thresh}'], global_step=epoch)
             my_writer.add_scalar(f'val_thresholds/dice_{thresh}', val_log[f'dice_{thresh}'], global_step=epoch)
@@ -662,12 +662,6 @@ def main():
             trigger = 0
         else:
             trigger += 1
-
-        my_writer.add_scalar('val/best_iou_value', best_iou, global_step=epoch)
-        if best_metrics:
-            my_writer.add_scalar('val/best_dice_value', best_metrics['dice'], global_step=epoch)
-            my_writer.add_scalar('val/best_accuracy_value', best_metrics['accuracy'], global_step=epoch)
-
 
         if config['early_stopping'] > 0 and trigger >= config['early_stopping']:
              print("=> early stopping")
