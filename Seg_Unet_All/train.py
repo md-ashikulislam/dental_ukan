@@ -620,7 +620,7 @@ def main():
         val_log = validate(config, val_loader, model, criterion)
 
         # Add this to your main training loop (after validation)
-        if epoch % 5 == 0:  # Every 5 epochs
+        if epoch % 2 == 0:  # Every 5 epochs
             visualize_single_sample(my_writer, model, val_loader, epoch)
 
         if config['scheduler'] == 'CosineAnnealingLR':
