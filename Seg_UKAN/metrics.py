@@ -58,22 +58,18 @@ def indicators(output, target, threshold=0.6):
     recall_ = _to_float(tp / (tp + fn + smooth))
     specificity_ = _to_float(tn / (tn + fp + smooth))
     
-    # Calculate F1 score
-    f1_ = _to_float(2 * (precision_ * recall_) / (precision_ + recall_ + smooth))
-    
-    return iou_, dice_, recall_, specificity_, precision_, accuracy_, f1_
+    return iou_, dice_, recall_, specificity_, precision_, accuracy_
 
 def evaluate_multiple_thresholds(output, target, thresholds=[0.4, 0.45, 0.5, 0.55, 0.6]):
     results = {}
     for thresh in thresholds:
-        iou, dice, recall, specificity, precision, accuracy, f1 = indicators(output, target, threshold=thresh)
+        iou, dice, recall, specificity, precision, accuracy = indicators(output, target, threshold=thresh)
         results[thresh] = {
             'iou': iou,
             'dice': dice,
             'recall': recall,
             'specificity': specificity,
             'precision': precision,
-            'accuracy': accuracy,
-            'f1': f1
+            'accuracy': accuracy
         }
     return results
