@@ -1,4 +1,4 @@
-#! /data/cxli/miniconda3/envs/th200/bin/python
+
 import argparse
 import os
 from glob import glob
@@ -18,7 +18,7 @@ from collections import OrderedDict
 import archs
 
 from dataset import Dataset
-from metrics import iou_score
+from metrics import iou_score, dice_coef
 from utils import AverageMeter
 from albumentations import RandomRotate90,Resize
 import time
@@ -64,30 +64,9 @@ def main():
     # model = model.cuda()  # Move to CUDA
 
     dataset_name = config['dataset']
-    if dataset_name == 'Dental' or dataset_name == 'Resized_Teeth':
+    if dataset_name == 'Dental' or dataset_name == 'new_Dataset':
        img_ext = '.JPG'  # Update for teeth dataset
-    elif dataset_name == 'ph2':
-       img_ext = '.bmp'
-    elif dataset_name == 'HAM':
-       img_ext = '.jpg'
-    else:
-       img_ext = '.png'  # Default for other datasets
-    # img_ext = '.png'
-
-    if dataset_name == 'busi':
-        mask_ext = '_mask.png'
-    elif dataset_name == 'glas':
-        mask_ext = '.png'
-    elif dataset_name == 'Dental':
-        mask_ext = '.jpg'
-    elif dataset_name == 'Resized_Teeth':
-        mask_ext = '.jpg'
-    elif dataset_name == 'cvc':
-        mask_ext = '.png'
-    elif dataset_name == 'ph2':
-        mask_ext = '.bmp'
-    elif dataset_name == 'HAM':
-        mask_ext = '_segmentation.png'
+       mask_ext = '.jpg'
 
 
     # Data loading code
@@ -95,13 +74,15 @@ def main():
     # img_ids.sort()
     img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
 
-    _, val_img_ids = train_test_split(img_ids, test_size=0.2, random_state=config['dataseed'])
+    _, val_img_ids = train_test_split(img_ids, test_size=0.15, random_state=config['dataseed'])
 
     # ckpt = torch.load(f'{args.output_dir}/{args.name}/model.pth')
-    ckpt = torch.load(f'{args.output_dir}/{args.name}/model.pth', weights_only=True)
+    # ckpt = torch.load(f'{args.output_dir}/{args.name}/model.pth', weights_only=True)
+    ckpt = torch.load('/kaggle/input/check/model.pth')
+
 
     try:        
-        model.load_state_dict(ckpt)
+        model.load_state_dict(ckpt['state_dict'])
     except:
         # print("Pretrained model keys:", ckpt.keys())
         # print("Current model keys:", model.state_dict().keys())
@@ -140,7 +121,7 @@ def main():
 
     iou_avg_meter = AverageMeter()
     dice_avg_meter = AverageMeter()
-    hd95_avg_meter = AverageMeter()
+    # hd95_avg_meter = AverageMeter()
 
     with torch.no_grad():
         for input, target, meta in tqdm(val_loader, total=len(val_loader)):
@@ -152,10 +133,10 @@ def main():
             # print("Model output shape:", output.shape)   
             # print(f"Output Min: {output.min().item()}, Max: {output.max().item()}, Mean: {output.mean().item()}")
 
-            iou, dice, hd95_ = iou_score(output, target)
+            iou = iou_score(output, target)
+            dice = dice_coef(output, target)
             iou_avg_meter.update(iou, input.size(0))
             dice_avg_meter.update(dice, input.size(0))
-            hd95_avg_meter.update(hd95_, input.size(0))
 
             output = torch.sigmoid(output).cpu().numpy()
             # print(f"Post-Sigmoid Min: {output.min().item()}, Max: {output.max().item()}, Mean: {output.mean().item()}")
@@ -174,7 +155,7 @@ def main():
     print(config['name'])
     print('IoU: %.4f' % iou_avg_meter.avg)
     print('Dice: %.4f' % dice_avg_meter.avg)
-    print('HD95: %.4f' % hd95_avg_meter.avg)
+    # print('HD95: %.4f' % hd95_avg_meter.avg)
 
 
 
