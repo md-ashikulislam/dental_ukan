@@ -141,15 +141,16 @@ def main():
             iou_avg_meter.update(iou, input.size(0))
             dice_avg_meter.update(dice, input.size(0))
 
-            output = torch.sigmoid(output)
+            # output = torch.sigmoid(output)
 
-            output[output>=0.5]=1
-            output[output<0.5]=0
+            # output[output>=0.5]=1
+            # output[output<0.5]=0
+            output = torch.sigmoid(output).cpu().numpy()
+            output = (output >= 0.5).astype(np.uint8)
 
             os.makedirs(os.path.join(args.output_dir, config['name'], 'out_val'), exist_ok=True)
             for pred, img_id in zip(output, meta['img_id']):
-                pred_np = pred[0].astype(np.uint8)
-                pred_np = pred_np * 255
+                pred_np = pred[0] * 255 
                 img = Image.fromarray(pred_np, 'L')
                 img.save(os.path.join(args.output_dir, config['name'], 'out_val/{}.jpg'.format(img_id)))
 
