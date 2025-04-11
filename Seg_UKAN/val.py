@@ -142,12 +142,7 @@ def main():
             iou_avg_meter.update(iou, input.size(0))
             dice_avg_meter.update(dice, input.size(0))
 
-            print("Output values before sigmoid:", output.cpu().numpy())
-
             output = torch.sigmoid(output).cpu().numpy()
-
-            print("Output values before sigmoid:", output.cpu().numpy())
-
 
             output[output>=0.5]=1
             output[output<0.5]=0
