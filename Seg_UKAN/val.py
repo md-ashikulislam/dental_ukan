@@ -217,12 +217,21 @@ def main():
     )
     model = model.cuda()
 
-    # Load checkpoint
-    checkpoint = torch.load(args.checkpoint_path)
+    checkpoint = torch.load(args.checkpoint_path, weights_only=True)
+
+    # Remove 'module.' prefix from checkpoint keys if present
+    state_dict = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
+    if any(key.startswith('module.') for key in state_dict.keys()):
+        state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+
+    # Load the state dictionary into the model
     try:
-        model.load_state_dict(checkpoint['state_dict'], strict=True)
-    except KeyError:
-        model.load_state_dict(checkpoint, strict=True)
+        model.load_state_dict(state_dict, strict=True)
+    except RuntimeError as e:
+        print(f"Error loading state dict: {e}")
+        print("Attempting to load with strict=False")
+        model.load_state_dict(state_dict, strict=False)
+
     model.eval()
 
     # Define dataset extensions
