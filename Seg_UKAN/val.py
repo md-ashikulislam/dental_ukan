@@ -188,13 +188,14 @@ def parse_args():
     parser.add_argument('--checkpoint_path', default='/kaggle/working/outputs/Dental_UKAN_woDS/model.pth', help='path to model checkpoint')
     parser.add_argument('--data_dir', default='inputs', help='dataset directory')
     parser.add_argument('--dataset', default='Dental', help='dataset name')
+    parser.add_argument('--config_path')
     return parser.parse_args()
 
 def main():
     args = parse_args()
 
     # Load config from training
-    config_path = f'outputs/{args.name}/config.yml'
+    config_path = f'{args.config_path}'
     with open(config_path, 'r') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
