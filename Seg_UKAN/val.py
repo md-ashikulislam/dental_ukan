@@ -130,25 +130,12 @@ def main():
     # hd95_avg_meter = AverageMeter()
 
     with torch.no_grad():
-        for i, (input, target, meta) in enumerate(tqdm(val_loader, total=len(val_loader))): 
+        for input, target, meta in tqdm(val_loader, total=len(val_loader)):
             input = input.cuda()
             target = target.cuda()
             model = model.cuda()
             # compute output
             output = model(input)
-
-            if i == 0:
-                plt.figure(figsize=(15,5))
-                plt.subplot(1,3,1)
-                plt.imshow(input[0].cpu().numpy().transpose(1,2,0))
-                plt.title('Input')
-                plt.subplot(1,3,2)
-                plt.imshow(target[0,0].cpu().numpy(), cmap='gray')
-                plt.title('Ground Truth')
-                plt.subplot(1,3,3)
-                plt.imshow(torch.sigmoid(output[0,0]).cpu().numpy(), cmap='gray')
-                plt.title('Prediction')
-                plt.close()
 
             iou = iou_score(output, target)
             dice = dice_coef(output, target)
