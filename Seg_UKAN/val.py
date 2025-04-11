@@ -50,7 +50,8 @@ def main():
     seed_torch()
     args = parse_args()
 
-    with open(f'{args.output_dir}/{args.name}/config.yml', 'r') as f:
+    # with open(f'{args.output_dir}/{args.name}/config.yml', 'r') as f:
+    with open('/kaggle/input/checkukan/UKAN150/config.yml') as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
     print('-'*20)
@@ -64,7 +65,7 @@ def main():
     # model = model.cuda()  # Move to CUDA
 
     dataset_name = config['dataset']
-    if dataset_name == 'Dental' or dataset_name == 'new_Dataset':
+    if dataset_name == 'Dental' or dataset_name == 'new_dataset':
        img_ext = '.JPG'  # Update for teeth dataset
        mask_ext = '.jpg'
 
@@ -78,7 +79,7 @@ def main():
 
     # ckpt = torch.load(f'{args.output_dir}/{args.name}/model.pth')
     # ckpt = torch.load(f'{args.output_dir}/{args.name}/model.pth', weights_only=True)
-    ckpt = torch.load('/kaggle/input/check/model.pth')
+    ckpt = torch.load('/kaggle/input/checkukan/UKAN150/model.pth')
 
 
     try:        
