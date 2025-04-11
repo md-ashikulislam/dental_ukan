@@ -34,6 +34,7 @@ def parse_args():
 
     parser.add_argument('--name', default=None, help='model name')
     parser.add_argument('--output_dir', default='outputs', help='output dir')
+    parser.add_argument('--checkpoint_path')
             
     args = parser.parse_args()
 
