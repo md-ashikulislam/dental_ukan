@@ -4,6 +4,10 @@ import os
 from glob import glob
 import random
 import numpy as np
+from albumentations import MedianBlur
+from albumentations import CLAHE
+import matplotlib.pyplot as plt
+
 
 import cv2
 import torch
@@ -102,8 +106,9 @@ def main():
 
     val_transform = Compose([
         Resize(config['input_h'], config['input_w']),
-        transforms.Normalize(),
-    ])
+        MedianBlur(blur_limit=3),  # Median filter (3x3 kernel)
+        CLAHE(clip_limit=2.0, tile_grid_size=(8, 8)),  # Add CLAHE here
+        transforms.Normalize(mean=[0.5], std=[0.5]),    ])
 
     val_dataset = Dataset(
         img_ids=val_img_ids,
@@ -125,22 +130,38 @@ def main():
     # hd95_avg_meter = AverageMeter()
 
     with torch.no_grad():
-        for input, target, meta in tqdm(val_loader, total=len(val_loader)):
+        for i, (input, target, meta) in enumerate(tqdm(val_loader, total=len(val_loader))): 
             input = input.cuda()
             target = target.cuda()
             model = model.cuda()
             # compute output
             output = model(input)
-            # print("Model output shape:", output.shape)   
-            # print(f"Output Min: {output.min().item()}, Max: {output.max().item()}, Mean: {output.mean().item()}")
+
+            if i == 0:
+                plt.figure(figsize=(15,5))
+                plt.subplot(1,3,1)
+                plt.imshow(input[0].cpu().numpy().transpose(1,2,0))
+                plt.title('Input')
+                plt.subplot(1,3,2)
+                plt.imshow(target[0,0].cpu().numpy(), cmap='gray')
+                plt.title('Ground Truth')
+                plt.subplot(1,3,3)
+                plt.imshow(torch.sigmoid(output[0,0]).cpu().numpy(), cmap='gray')
+                plt.title('Prediction')
+                plt.savefig(os.path.join(args.output_dir, config['name'], 'debug_sample.png'))
+                plt.close()
 
             iou = iou_score(output, target)
             dice = dice_coef(output, target)
             iou_avg_meter.update(iou, input.size(0))
             dice_avg_meter.update(dice, input.size(0))
 
+            print("Output values before sigmoid:", output.cpu().numpy())
+
             output = torch.sigmoid(output).cpu().numpy()
-            # print(f"Post-Sigmoid Min: {output.min().item()}, Max: {output.max().item()}, Mean: {output.mean().item()}")
+
+            print("Output values before sigmoid:", output.cpu().numpy())
+
 
             output[output>=0.5]=1
             output[output<0.5]=0
@@ -152,7 +173,6 @@ def main():
                 img = Image.fromarray(pred_np, 'L')
                 img.save(os.path.join(args.output_dir, config['name'], 'out_val/{}.jpg'.format(img_id)))
 
-    
     print(config['name'])
     print('IoU: %.4f' % iou_avg_meter.avg)
     print('Dice: %.4f' % dice_avg_meter.avg)
