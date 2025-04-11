@@ -34,7 +34,8 @@ def parse_args():
 
     parser.add_argument('--name', default=None, help='model name')
     parser.add_argument('--output_dir', default='outputs', help='output dir')
-    parser.add_argument('--checkpoint_path')
+    parser.add_argument('--model_path')
+    parser.add_argument('--config_path')
             
     args = parser.parse_args()
 
@@ -56,7 +57,7 @@ def main():
     args = parse_args()
 
     # with open(f'{args.output_dir}/{args.name}/config.yml', 'r') as f:
-    with open('/kaggle/input/checkukan/UKAN150/config.yml') as f:
+    with open(args.config_path) as f:
         config = yaml.load(f, Loader=yaml.FullLoader)
 
     print('-'*20)
@@ -71,7 +72,7 @@ def main():
 
     model = model.cuda()
 
-    checkpoint = torch.load(args.checkpoint_path, weights_only=True)
+    checkpoint = torch.load(args.model_path, weights_only=True)
 
     # Remove 'module.' prefix from checkpoint keys if present
     state_dict = checkpoint['state_dict'] if 'state_dict' in checkpoint else checkpoint
