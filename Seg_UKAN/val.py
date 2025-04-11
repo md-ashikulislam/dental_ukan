@@ -135,14 +135,16 @@ def main():
             target = target.cuda()
             model = model.cuda()
             # compute output
-            output = model(input)
 
             iou = iou_score(output, target)
             dice = dice_coef(output, target)
             iou_avg_meter.update(iou, input.size(0))
             dice_avg_meter.update(dice, input.size(0))
 
-            output = torch.sigmoid(output).cpu().numpy()
+            output = model(input)
+            print("Raw output min:", output.min().item(), "max:", output.max().item())
+            output = torch.sigmoid(output)
+            print("Sigmoid output min:", output.min().item(), "max:", output.max().item())
 
             output[output>=0.5]=1
             output[output<0.5]=0
