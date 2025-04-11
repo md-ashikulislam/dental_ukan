@@ -148,7 +148,6 @@ def main():
                 plt.subplot(1,3,3)
                 plt.imshow(torch.sigmoid(output[0,0]).cpu().numpy(), cmap='gray')
                 plt.title('Prediction')
-                plt.savefig(os.path.join(args.output_dir, config['name'], 'debug_sample.png'))
                 plt.close()
 
             iou = iou_score(output, target)
