@@ -27,6 +27,8 @@ def parse_args():
     parser.add_argument('--output_dir', default='outputs', help='output dir')
     parser.add_argument('--model_path')
     parser.add_argument('--config_path')
+    parser.add_argument('--threshold')
+
     args = parser.parse_args()
     return args
 
@@ -140,7 +142,7 @@ def main():
             dice_avg_meter.update(dice, input.size(0))
 
             output = torch.sigmoid(output).cpu().numpy()
-            output = (output >= 0.5).astype(np.uint8)
+            output = (output >= args.threshold).astype(np.uint8)
 
             # Save predictions
             os.makedirs(os.path.join(args.output_dir, config['name'], 'out_val'), exist_ok=True)
