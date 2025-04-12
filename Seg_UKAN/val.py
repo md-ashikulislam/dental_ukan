@@ -27,7 +27,7 @@ def parse_args():
     parser.add_argument('--output_dir', default='outputs', help='output dir')
     parser.add_argument('--model_path')
     parser.add_argument('--config_path')
-    parser.add_argument('--threshold')
+    parser.add_argument('--threshold', type=float)
 
     args = parser.parse_args()
     return args
