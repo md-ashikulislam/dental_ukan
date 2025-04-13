@@ -393,7 +393,7 @@ def count_parameters(model):
     print(f"Total Trainable Parameters: {total_params:,}")
     return total_params
 
-def calculate_gflops(model, input_shape=(1, 1, 256, 256)):
+def calculate_gflops(model, input_shape=(1, 1, 512, 512)):
     """Calculate GFLOPS and parameters using thop."""
     device = next(model.parameters()).device  # Get model's device
     dummy_input = torch.randn(*input_shape).to(device)  # Match device
