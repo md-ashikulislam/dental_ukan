@@ -357,7 +357,7 @@ def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
 def visualize_kan_activations(writer, model, epoch):
     """
     Visualize learned activation functions from the first KANLinear layer
-    Plots functions between output channel 0 and input channels 0-8
+    Compatible with the KANLinear implementation provided
     """
     # Find the first KANLinear layer in the model
     kan_layer = None
@@ -370,58 +370,67 @@ def visualize_kan_activations(writer, model, epoch):
         print("No KANLinear layers found in model!")
         return
     
-    # Get the B-spline parameters
-    grid = kan_layer.grid.detach().cpu().numpy()  # Grid points
-    coeff = kan_layer.coeff.detach().cpu().numpy()  # Spline coefficients
-    base_weight = kan_layer.base_weight.detach().cpu().numpy()  # Base weights
-    spline_weight = kan_layer.spline_weight.detach().cpu().numpy()  # Spline weights
-    
-    # For output channel 0, input channels 0-8
-    out_ch = 0
-    num_inputs_to_plot = min(8, kan_layer.in_features)
-    
-    # Create figure
-    fig, axes = plt.subplots(3, 3, figsize=(15, 12))
-    axes = axes.ravel()
-    
-    for in_ch in range(num_inputs_to_plot):
-        # Get the specific spline parameters for this input-output pair
-        grid_points = grid[in_ch, out_ch, :]
-        spline_coeff = coeff[in_ch, out_ch, :]
-        base_w = base_weight[in_ch, out_ch]
-        spline_w = spline_weight[in_ch, out_ch]
+    try:
+        # Get parameters from the KANLinear layer
+        grid = kan_layer.grid.detach().cpu()  # [in_features, grid_size + 2*spline_order + 1]
+        spline_weight = kan_layer.spline_weight.detach().cpu()  # [out_features, in_features, grid_size + spline_order]
+        base_weight = kan_layer.base_weight.detach().cpu()  # [out_features, in_features]
         
-        # Create B-spline function
-        spline = BSpline(grid_points, spline_coeff, kan_layer.spline_order, extrapolate=False)
+        if kan_layer.enable_standalone_scale_spline:
+            spline_scaler = kan_layer.spline_scaler.detach().cpu()  # [out_features, in_features]
         
-        # Evaluation points
-        x = np.linspace(grid_points[0], grid_points[-1], 100)
+        # For output channel 0, input channels 0-8
+        out_ch = 0
+        num_inputs_to_plot = min(8, kan_layer.in_features)
         
-        # Compute activation function output
-        base_component = base_w * kan_layer.base_activation(torch.tensor(x)).numpy()
-        spline_component = spline_w * spline(x)
-        y = base_component + spline_component
+        # Create figure
+        fig, axes = plt.subplots(3, 3, figsize=(15, 12))
+        axes = axes.ravel()
         
-        # Plot
-        ax = axes[in_ch]
-        ax.plot(x, y, 'o-', label='Activation function')
-        ax.scatter(grid_points, spline_coeff, color='purple', label='Control points')
-        ax.set_title(f'Input {in_ch} → Output {out_ch}')
-        ax.set_xlabel('Input')
-        ax.set_ylabel('Output')
-        ax.grid(True)
-        ax.legend()
-    
-    # Remove empty subplots if needed
-    for i in range(num_inputs_to_plot, len(axes)):
-        fig.delaxes(axes[i])
-    
-    plt.suptitle(f'Learned Activation Functions (Epoch {epoch})', y=1.02)
-    plt.tight_layout()
-    
-    # Add to TensorBoard
-    writer.add_figure('kan_activations/first_layer', fig, epoch)
-    plt.close(fig)
+        for in_ch in range(num_inputs_to_plot):
+            # Get grid points for this input channel (remove spline_order extensions)
+            grid_points = grid[in_ch, kan_layer.spline_order:-kan_layer.spline_order].numpy()
+            
+            # Get spline coefficients for this input-output pair
+            coeff = spline_weight[out_ch, in_ch].numpy()
+            if kan_layer.enable_standalone_scale_spline:
+                coeff = coeff * spline_scaler[out_ch, in_ch].item()
+            
+            # Create evaluation points
+            x = np.linspace(grid_points.min(), grid_points.max(), 100)
+            
+            # Compute base component
+            base_component = base_weight[out_ch, in_ch].item() * kan_layer.base_activation(torch.tensor(x)).numpy()
+            
+            # Compute spline component using linear interpolation (simplified)
+            spline_component = np.interp(x, grid_points, coeff[:len(grid_points)])
+            
+            # Combine components
+            y = base_component + spline_component
+            
+            # Plot
+            ax = axes[in_ch]
+            ax.plot(x, y, 'b-', label='Activation function')
+            ax.scatter(grid_points, coeff[:len(grid_points)], color='red', label='Control points')
+            ax.set_title(f'Input {in_ch} → Output {out_ch}')
+            ax.set_xlabel('Input')
+            ax.set_ylabel('Output')
+            ax.grid(True)
+            ax.legend()
+        
+        # Remove empty subplots if needed
+        for i in range(num_inputs_to_plot, len(axes)):
+            fig.delaxes(axes[i])
+        
+        plt.suptitle(f'Learned Activation Functions (Epoch {epoch})', y=1.02)
+        plt.tight_layout()
+        
+        # Add to TensorBoard
+        writer.add_figure('kan_activations/first_layer', fig, epoch)
+        plt.close(fig)
+        
+    except Exception as e:
+        print(f"Error visualizing KAN activations: {str(e)}")
 
 def seed_torch(seed=1029):
     random.seed(seed)
