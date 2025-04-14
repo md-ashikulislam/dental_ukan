@@ -354,6 +354,7 @@ def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
     
     return piou, thresholded
 
+
 def visualize_kan_activations(writer, model, epoch):
     """
     Visualize learned activation functions from the first KANLinear layer.
