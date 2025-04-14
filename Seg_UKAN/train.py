@@ -409,7 +409,10 @@ def visualize_kan_activations(writer, model, epoch):
         # Plot
         ax = axes[in_ch]
         ax.plot(x, y, 'o-', label='Activation function')  # Orange line for activation function
-        ax.scatter(grid_points, spline_coeff, color='purple', label='Control points')
+        # Scatter control points (truncate grid to match spline_coeff size)
+        num_control_points = len(spline_coeff)
+        control_grid_points = grid_points[:num_control_points]
+        ax.scatter(control_grid_points, spline_coeff, color='purple', label='Control points')
         ax.set_title(f'Input {in_ch} → Output {out_ch}')
         ax.set_xlabel('Input')
         ax.set_ylabel('Output')
