@@ -14,6 +14,7 @@ import torch.optim as optim
 import yaml
 import matplotlib.pyplot as plt
 from thop import profile, clever_format
+from scipy.interpolate import BSpline
 
 from albumentations.augmentations import transforms
 import albumentations as A
@@ -28,6 +29,7 @@ from albumentations import MedianBlur
 from metrics import evaluate_multiple_thresholds 
 
 import archs
+from kan import KANLinear
 
 import losses
 from dataset import Dataset
@@ -352,6 +354,75 @@ def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
     
     return piou, thresholded
 
+def visualize_kan_activations(writer, model, epoch):
+    """
+    Visualize learned activation functions from the first KANLinear layer
+    Plots functions between output channel 0 and input channels 0-8
+    """
+    # Find the first KANLinear layer in the model
+    kan_layer = None
+    for module in model.modules():
+        if isinstance(module, KANLinear):
+            kan_layer = module
+            break
+    
+    if kan_layer is None:
+        print("No KANLinear layers found in model!")
+        return
+    
+    # Get the B-spline parameters
+    grid = kan_layer.grid.detach().cpu().numpy()  # Grid points
+    coeff = kan_layer.coeff.detach().cpu().numpy()  # Spline coefficients
+    base_weight = kan_layer.base_weight.detach().cpu().numpy()  # Base weights
+    spline_weight = kan_layer.spline_weight.detach().cpu().numpy()  # Spline weights
+    
+    # For output channel 0, input channels 0-8
+    out_ch = 0
+    num_inputs_to_plot = min(8, kan_layer.in_features)
+    
+    # Create figure
+    fig, axes = plt.subplots(3, 3, figsize=(15, 12))
+    axes = axes.ravel()
+    
+    for in_ch in range(num_inputs_to_plot):
+        # Get the specific spline parameters for this input-output pair
+        grid_points = grid[in_ch, out_ch, :]
+        spline_coeff = coeff[in_ch, out_ch, :]
+        base_w = base_weight[in_ch, out_ch]
+        spline_w = spline_weight[in_ch, out_ch]
+        
+        # Create B-spline function
+        spline = BSpline(grid_points, spline_coeff, kan_layer.spline_order, extrapolate=False)
+        
+        # Evaluation points
+        x = np.linspace(grid_points[0], grid_points[-1], 100)
+        
+        # Compute activation function output
+        base_component = base_w * kan_layer.base_activation(torch.tensor(x)).numpy()
+        spline_component = spline_w * spline(x)
+        y = base_component + spline_component
+        
+        # Plot
+        ax = axes[in_ch]
+        ax.plot(x, y, 'o-', label='Activation function')
+        ax.scatter(grid_points, spline_coeff, color='purple', label='Control points')
+        ax.set_title(f'Input {in_ch} → Output {out_ch}')
+        ax.set_xlabel('Input')
+        ax.set_ylabel('Output')
+        ax.grid(True)
+        ax.legend()
+    
+    # Remove empty subplots if needed
+    for i in range(num_inputs_to_plot, len(axes)):
+        fig.delaxes(axes[i])
+    
+    plt.suptitle(f'Learned Activation Functions (Epoch {epoch})', y=1.02)
+    plt.tight_layout()
+    
+    # Add to TensorBoard
+    writer.add_figure('kan_activations/first_layer', fig, epoch)
+    plt.close(fig)
+
 def seed_torch(seed=1029):
     random.seed(seed)
     os.environ['PYTHONHASHSEED'] = str(seed)
@@ -497,10 +568,10 @@ def main():
         raise NotImplementedError
     
     # # Load the checkpoint
-    # checkpoint = torch.load('/kaggle/input/checkpoint10/model.pth')
+    checkpoint = torch.load('/kaggle/input/checkukan/UKAN150/model.pth')
 
-    # model.load_state_dict(checkpoint['state_dict'])
-    # optimizer.load_state_dict(checkpoint['optimizer'])
+    model.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
 
 
     dataset_name = config['dataset']
@@ -598,6 +669,8 @@ def main():
         # Add this to your main training loop (after validation)
         if epoch % 2 == 0:  # Every 2 epochs
             visualize_single_sample(my_writer, model, val_loader, epoch)
+            visualize_kan_activations(my_writer, model, epoch)  # Add this line
+
 
         if config['scheduler'] == 'CosineAnnealingLR':
             scheduler.step()
