@@ -677,10 +677,10 @@ def main():
         train_log = train(config, train_loader, model, criterion, optimizer)
         val_log = validate(config, val_loader, model, criterion)
 
-        # Add this to your main training loop (after validation)
-        if epoch % 2 == 0:  # Every 2 epochs
-            visualize_single_sample(my_writer, model, val_loader, epoch)
-            visualize_kan_activations(my_writer, model, epoch)  # Add this line
+        # # Add this to your main training loop (after validation)
+        # if epoch % 2 == 0:  # Every 2 epochs
+        #     visualize_single_sample(my_writer, model, val_loader, epoch)
+        #     visualize_kan_activations(my_writer, model, epoch)  # Add this line
 
 
         if config['scheduler'] == 'CosineAnnealingLR':
