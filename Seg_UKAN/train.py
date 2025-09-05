@@ -578,11 +578,11 @@ def main():
     else:
         raise NotImplementedError
     
-    # # Load the checkpoint
-    # checkpoint = torch.load('/kaggle/input/checkukan/UKAN150/model.pth')
+    # Load the checkpoint
+    checkpoint = torch.load('/kaggle/input/checkukan/UKAN150/model.pth')
 
-    # model.load_state_dict(checkpoint['state_dict'])
-    # optimizer.load_state_dict(checkpoint['optimizer'])
+    model.load_state_dict(checkpoint['state_dict'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
 
 
     dataset_name = config['dataset']
