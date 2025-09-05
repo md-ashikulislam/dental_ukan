@@ -175,11 +175,12 @@ import argparse
 import os
 import random
 import numpy as np
+import albumentations as A
+
 from albumentations import MedianBlur, CLAHE
 import cv2
 import torch
 import yaml
-from albumentations.augmentations import transforms
 from albumentations.core.composition import Compose
 from tqdm import tqdm
 import archs
@@ -265,7 +266,7 @@ def main():
         Resize(config['input_h'], config['input_w']),
         MedianBlur(blur_limit=3),
         CLAHE(clip_limit=2.0, tile_grid_size=(8, 8)),
-        transforms.Normalize(mean=[0.5], std=[0.5]),
+        A.Normalize(mean=[0.5], std=[0.5]),
     ])
 
     # Single image dataset
