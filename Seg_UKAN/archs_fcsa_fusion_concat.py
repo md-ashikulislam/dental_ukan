@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 from utils import *
 
 import timm
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from timm.layers import DropPath, to_2tuple, trunc_normal_
 import types
 import math
 from abc import ABCMeta, abstractmethod
@@ -355,7 +355,7 @@ class UKAN(nn.Module):
 
         kan_input_dim = embed_dims[0]
 
-        self.encoder1 = ConvLayer(3, kan_input_dim // 8)
+        self.encoder1 = ConvLayer(input_channels, kan_input_dim // 8)
         self.encoder2 = ConvLayer(kan_input_dim // 8, kan_input_dim // 4)
         self.encoder3 = ConvLayer(kan_input_dim // 4, kan_input_dim)
         self.encoder4 = ConvLayer(embed_dims[0], embed_dims[1])
