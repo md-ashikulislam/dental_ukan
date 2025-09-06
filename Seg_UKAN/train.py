@@ -271,67 +271,178 @@ def validate(config, val_loader, model, criterion):
 
     return results
 
+# def visualize_single_sample(writer, model, val_loader, epoch):
+#     """Plot activations, prediction, and GT as separate full-size figures"""    
+#     # Get sample
+#     torch.manual_seed(epoch)  # Makes selection consistent per epoch
+#     inputs, targets, _ = next(iter(val_loader))
+#     idx = torch.randint(0, inputs.size(0), (1,)).item()
+#     input_img = inputs[idx].unsqueeze(0).cuda()
+#     target_mask = targets[idx].unsqueeze(0).cuda()
+    
+#     # Forward pass
+#     model.eval()
+#     with torch.no_grad():
+#         if isinstance(model, torch.nn.DataParallel):
+#             output, activations = model.module(input_img, return_activations=True)
+#         else:
+#             output, activations = model(input_img, return_activations=True)
+#         output = torch.sigmoid(output)
+    
+#     # Calculate metrics
+#     iou = iou_score(output, target_mask)
+#     dice = dice_coef(output, target_mask)
+#     piou, _ = calculate_plausibility_iou(activations, target_mask)
+    
+#     # Prepare tensors
+#     input_img = input_img.cpu().squeeze()
+#     target_mask = target_mask.cpu().squeeze()
+#     output = output.cpu().squeeze()
+#     activations = activations.cpu().squeeze()
+    
+#     # Normalize activations (mean across channels if needed)
+#     if len(activations.shape) == 3:
+#         activations = activations.mean(dim=0)
+#     activations = (activations - activations.min()) / (activations.max() - activations.min() + 1e-6)
+
+#     # -----------------------------------------------
+#     # 1. Activation Heatmap (Full Page)
+#     plt.figure(figsize=(12, 10))
+#     plt.imshow(activations, cmap='jet', vmin=0, vmax=1)
+#     plt.title(f"Activation Map (PIoU: {piou:.2f})", fontsize=16, pad=20)
+#     plt.axis('off')
+#     cbar = plt.colorbar(fraction=0.046, pad=0.04)
+#     cbar.ax.tick_params(labelsize=12)
+#     writer.add_figure('activations/heatmap', plt.gcf(), epoch)
+#     plt.close()
+    
+#     # 2. Prediction Mask (Full Page)
+#     plt.figure(figsize=(12, 10))
+#     plt.imshow((output > 0.6).float(), cmap='gray')
+#     plt.title(f"Prediction\nIoU: {iou:.2f}  Dice: {dice:.2f}", 
+#               fontsize=16, pad=20)
+#     plt.axis('off')
+#     writer.add_figure('prediction/mask', plt.gcf(), epoch)
+#     plt.close()
+    
+#     # 3. Ground Truth (Full Page)
+#     plt.figure(figsize=(12, 10))
+#     plt.imshow(target_mask, cmap='gray')
+#     plt.title("Ground Truth", fontsize=16, pad=20)
+#     plt.axis('off')
+#     writer.add_figure('ground_truth/mask', plt.gcf(), epoch)
+#     plt.close()
+
 def visualize_single_sample(writer, model, val_loader, epoch):
-    """Plot activations, prediction, and GT as separate full-size figures"""    
+    """Plot activations, prediction, GT, and Grad-CAM for UKAN model"""    
     # Get sample
-    torch.manual_seed(epoch)  # Makes selection consistent per epoch
+    torch.manual_seed(epoch)
     inputs, targets, _ = next(iter(val_loader))
     idx = torch.randint(0, inputs.size(0), (1,)).item()
     input_img = inputs[idx].unsqueeze(0).cuda()
     target_mask = targets[idx].unsqueeze(0).cuda()
     
-    # Forward pass
-    model.eval()
-    with torch.no_grad():
-        if isinstance(model, torch.nn.DataParallel):
-            output, activations = model.module(input_img, return_activations=True)
-        else:
-            output, activations = model(input_img, return_activations=True)
-        output = torch.sigmoid(output)
+    # Enable gradient tracking
+    input_img.requires_grad_(True)
+    
+    # Forward pass with gradient tracking
+    model.train()  # Set to train mode to enable hooks
+    model.zero_grad()
+    
+    # Get output and activations
+    output, activations = model(input_img, return_activations=True)
+    output_sigmoid = torch.sigmoid(output)
     
     # Calculate metrics
-    iou = iou_score(output, target_mask)
-    dice = dice_coef(output, target_mask)
-    piou, _ = calculate_plausibility_iou(activations, target_mask)
+    iou = iou_score(output_sigmoid, target_mask)
+    dice = dice_coef(output_sigmoid, target_mask)
     
-    # Prepare tensors
-    input_img = input_img.cpu().squeeze()
+    # -------------------- GRAD-CAM COMPUTATION --------------------
+    # Use output as target for gradient computation
+    target = output.mean()  # Average across spatial dimensions
+    
+    # Backward pass to get gradients
+    target.backward(retain_graph=True)
+    
+    # Get gradients and activations
+    gradients = model.get_activations_gradient()
+    activations = model.get_activations()
+    
+    # Pool gradients across spatial dimensions
+    pooled_gradients = torch.mean(gradients, dim=[0, 2, 3])
+    
+    # Weight the activations by corresponding gradients
+    weighted_activations = torch.zeros_like(activations)
+    for i in range(activations.size(1)):  # For each channel
+        weighted_activations[:, i, :, :] = activations[:, i, :, :] * pooled_gradients[i]
+    
+    # Create Grad-CAM heatmap
+    grad_cam = torch.mean(weighted_activations, dim=1).squeeze(0)  # Average across channels
+    grad_cam = torch.relu(grad_cam)  # Apply ReLU to focus on positive influences
+    
+    # Normalize Grad-CAM
+    grad_cam = (grad_cam - grad_cam.min()) / (grad_cam.max() - grad_cam.min() + 1e-6)
+    
+    # -------------------- END GRAD-CAM --------------------
+    
+    # Prepare tensors for visualization
+    input_img = input_img.detach().cpu().squeeze()
     target_mask = target_mask.cpu().squeeze()
-    output = output.cpu().squeeze()
-    activations = activations.cpu().squeeze()
+    output = output_sigmoid.detach().cpu().squeeze()
+    grad_cam = grad_cam.detach().cpu()
     
-    # Normalize activations (mean across channels if needed)
-    if len(activations.shape) == 3:
-        activations = activations.mean(dim=0)
-    activations = (activations - activations.min()) / (activations.max() - activations.min() + 1e-6)
+    # Normalize activations for visualization
+    activations_vis = activations.mean(dim=1).squeeze(0).detach().cpu()
+    activations_vis = (activations_vis - activations_vis.min()) / (activations_vis.max() - activations_vis.min() + 1e-6)
 
-    # -----------------------------------------------
-    # 1. Activation Heatmap (Full Page)
+    # Visualizations (same as before)
+    # 1. Activation Heatmap
     plt.figure(figsize=(12, 10))
-    plt.imshow(activations, cmap='jet', vmin=0, vmax=1)
-    plt.title(f"Activation Map (PIoU: {piou:.2f})", fontsize=16, pad=20)
+    plt.imshow(activations_vis, cmap='jet', vmin=0, vmax=1)
+    plt.title("Activation Map", fontsize=16, pad=20)
     plt.axis('off')
     cbar = plt.colorbar(fraction=0.046, pad=0.04)
     cbar.ax.tick_params(labelsize=12)
     writer.add_figure('activations/heatmap', plt.gcf(), epoch)
     plt.close()
     
-    # 2. Prediction Mask (Full Page)
+    # 2. Grad-CAM Heatmap
     plt.figure(figsize=(12, 10))
-    plt.imshow((output > 0.6).float(), cmap='gray')
-    plt.title(f"Prediction\nIoU: {iou:.2f}  Dice: {dice:.2f}", 
-              fontsize=16, pad=20)
+    plt.imshow(grad_cam, cmap='jet', vmin=0, vmax=1)
+    plt.title("Grad-CAM: Gradient-weighted Activation Map", fontsize=16, pad=20)
+    plt.axis('off')
+    cbar = plt.colorbar(fraction=0.046, pad=0.04)
+    cbar.ax.tick_params(labelsize=12)
+    writer.add_figure('grad_cam/heatmap', plt.gcf(), epoch)
+    plt.close()
+    
+    # 3. Prediction Mask
+    plt.figure(figsize=(12, 10))
+    plt.imshow((output > 0.5).float(), cmap='gray')
+    plt.title(f"Prediction\nIoU: {iou:.2f}  Dice: {dice:.2f}", fontsize=16, pad=20)
     plt.axis('off')
     writer.add_figure('prediction/mask', plt.gcf(), epoch)
     plt.close()
     
-    # 3. Ground Truth (Full Page)
+    # 4. Ground Truth
     plt.figure(figsize=(12, 10))
     plt.imshow(target_mask, cmap='gray')
     plt.title("Ground Truth", fontsize=16, pad=20)
     plt.axis('off')
     writer.add_figure('ground_truth/mask', plt.gcf(), epoch)
     plt.close()
+    
+    # 5. Overlay: Input Image + Grad-CAM
+    plt.figure(figsize=(12, 10))
+    plt.imshow(input_img.permute(1, 2, 0) if input_img.dim() == 3 else input_img, cmap='gray')
+    plt.imshow(grad_cam, cmap='jet', alpha=0.5)
+    plt.title("Input Image with Grad-CAM Overlay", fontsize=16, pad=20)
+    plt.axis('off')
+    writer.add_figure('grad_cam/overlay', plt.gcf(), epoch)
+    plt.close()
+    
+    # Reset model to eval mode
+    model.eval()
 
 def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
     """Calculate Plausibility IoU between thresholded activations and GT mask"""
@@ -352,87 +463,6 @@ def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
     piou = (intersection / (union + 1e-6)).item()
     
     return piou, thresholded
-
-def visualize_kan_activations(writer, model, epoch):
-    """
-    Visualize learned B-spline activation functions and control points from the first KANLinear layer (fc1)
-    in the first KANLayer of the first KANBlock in the UKAN model.
-    Plots functions for output channel 0 and input channels 0-8.
-    """
-    # Handle DataParallel if used
-    model = model.module if isinstance(model, torch.nn.DataParallel) else model
-
-    # Navigate to the first KANLinear layer: model.block1[0].layer.fc1
-    kan_layer = None
-    try:
-        kan_layer = model.block1[0].layer.fc1
-        if not isinstance(kan_layer, KANLinear):
-            print("First layer is not a KANLinear layer!")
-            return
-    except (AttributeError, IndexError):
-        print("Could not find KANLinear layer in model.block1[0].layer.fc1!")
-        return
-
-    # Get the B-spline parameters
-    grid = kan_layer.grid.detach().cpu().numpy()  # Shape: (in_features, grid_size + 2 * spline_order + 1)
-    spline_weight = kan_layer.spline_weight.detach().cpu().numpy()  # Shape: (out_features, in_features, grid_size + spline_order)
-    base_weight = kan_layer.base_weight.detach().cpu().numpy()  # Shape: (out_features, in_features)
-
-    # Handle spline_scaler if enabled
-    if kan_layer.enable_standalone_scale_spline:
-        spline_scaler = kan_layer.spline_scaler.detach().cpu().numpy()  # Shape: (out_features, in_features)
-        # Scale the spline weights
-        spline_weight = spline_weight * spline_scaler[:, :, np.newaxis]  # Broadcasting to match dimensions
-
-    # For output channel 0, input channels 0-8
-    out_ch = 0
-    num_inputs_to_plot = min(8, kan_layer.in_features)
-
-    # Create figure with subplots
-    fig, axes = plt.subplots(3, 3, figsize=(15, 12))
-    axes = axes.ravel()
-
-    for in_ch in range(num_inputs_to_plot):
-        # Get the specific spline parameters for this input-output pair
-        grid_points = grid[in_ch, :]  # Grid for this input channel
-        spline_coeff = spline_weight[out_ch, in_ch, :]  # Spline coefficients for (out_ch, in_ch)
-        base_w = base_weight[out_ch, in_ch]  # Base weight for (out_ch, in_ch)
-
-        # Create B-spline function
-        spline = BSpline(grid_points, spline_coeff, kan_layer.spline_order, extrapolate=False)
-
-        # Evaluation points
-        x = np.linspace(grid_points[0], grid_points[-1], 100)
-
-        # Compute activation function output
-        x_tensor = torch.tensor(x, dtype=torch.float32)
-        base_component = base_w * kan_layer.base_activation(x_tensor).numpy()
-        spline_component = spline(x)
-        y = base_component + spline_component
-
-        # Plot
-        ax = axes[in_ch]
-        ax.plot(x, y, 'b-', label='Activation function')  # Blue line for activation function
-        # Plot control points (truncate grid to match spline_coeff size)
-        num_control_points = len(spline_coeff)
-        control_grid_points = grid_points[:num_control_points]
-        ax.scatter(control_grid_points, spline_coeff, color='purple', label='Control points')
-        ax.set_title(f'Input {in_ch} → Output {out_ch}')
-        ax.set_xlabel('Input')
-        ax.set_ylabel('Output')
-        ax.grid(True)
-        ax.legend()
-
-    # Remove empty subplots if needed
-    for i in range(num_inputs_to_plot, len(axes)):
-        fig.delaxes(axes[i])
-
-    plt.suptitle(f'Learned KAN Activation Functions (Epoch {epoch})', y=1.02)
-    plt.tight_layout()
-
-    # Add to TensorBoard
-    writer.add_figure('kan_activations/first_kan_layer', fig, epoch)
-    plt.close(fig)
 
 def seed_torch(seed=1029):
     random.seed(seed)
@@ -680,8 +710,6 @@ def main():
         # Add this to your main training loop (after validation)
         if epoch % 2 == 0:  # Every 2 epochs
             visualize_single_sample(my_writer, model, val_loader, epoch)
-            visualize_kan_activations(my_writer, model, epoch)  # Add this line
-
 
         if config['scheduler'] == 'CosineAnnealingLR':
             scheduler.step()
