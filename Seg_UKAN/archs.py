@@ -330,19 +330,6 @@ class UKAN(nn.Module):
         self.final = nn.Conv2d(embed_dims[0]//8, num_classes, kernel_size=1)
         self.soft = nn.Softmax(dim =1)
 
-        # Add gradient storage
-        self.gradients = None
-        self.activations = None
-        
-    def activations_hook(self, grad):
-        self.gradients = grad
-    
-    def get_activations_gradient(self):
-        return self.gradients
-    
-    def get_activations(self):
-        return self.activations
-
     def forward(self, x, return_activations=False):        
         B = x.shape[0]
         ### Encoder
@@ -404,13 +391,6 @@ class UKAN(nn.Module):
         out = F.relu(F.interpolate(self.decoder4(out),scale_factor=(2,2),mode ='bilinear'))
         out = torch.add(out,t1)
         last_layer_activations = F.relu(F.interpolate(self.decoder5(out), scale_factor=(2,2), mode='bilinear'))
-        
-        # Store activations for Grad-CAM
-        self.activations = last_layer_activations
-        
-        # Register hook for gradients if in training mode
-        if self.training and self.activations.requires_grad:
-            self.activations.register_hook(self.activations_hook)
 
         output = self.final(last_layer_activations)
 

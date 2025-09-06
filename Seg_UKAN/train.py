@@ -271,178 +271,178 @@ def validate(config, val_loader, model, criterion):
 
     return results
 
-# def visualize_single_sample(writer, model, val_loader, epoch):
-#     """Plot activations, prediction, and GT as separate full-size figures"""    
-#     # Get sample
-#     torch.manual_seed(epoch)  # Makes selection consistent per epoch
-#     inputs, targets, _ = next(iter(val_loader))
-#     idx = torch.randint(0, inputs.size(0), (1,)).item()
-#     input_img = inputs[idx].unsqueeze(0).cuda()
-#     target_mask = targets[idx].unsqueeze(0).cuda()
-    
-#     # Forward pass
-#     model.eval()
-#     with torch.no_grad():
-#         if isinstance(model, torch.nn.DataParallel):
-#             output, activations = model.module(input_img, return_activations=True)
-#         else:
-#             output, activations = model(input_img, return_activations=True)
-#         output = torch.sigmoid(output)
-    
-#     # Calculate metrics
-#     iou = iou_score(output, target_mask)
-#     dice = dice_coef(output, target_mask)
-#     piou, _ = calculate_plausibility_iou(activations, target_mask)
-    
-#     # Prepare tensors
-#     input_img = input_img.cpu().squeeze()
-#     target_mask = target_mask.cpu().squeeze()
-#     output = output.cpu().squeeze()
-#     activations = activations.cpu().squeeze()
-    
-#     # Normalize activations (mean across channels if needed)
-#     if len(activations.shape) == 3:
-#         activations = activations.mean(dim=0)
-#     activations = (activations - activations.min()) / (activations.max() - activations.min() + 1e-6)
-
-#     # -----------------------------------------------
-#     # 1. Activation Heatmap (Full Page)
-#     plt.figure(figsize=(12, 10))
-#     plt.imshow(activations, cmap='jet', vmin=0, vmax=1)
-#     plt.title(f"Activation Map (PIoU: {piou:.2f})", fontsize=16, pad=20)
-#     plt.axis('off')
-#     cbar = plt.colorbar(fraction=0.046, pad=0.04)
-#     cbar.ax.tick_params(labelsize=12)
-#     writer.add_figure('activations/heatmap', plt.gcf(), epoch)
-#     plt.close()
-    
-#     # 2. Prediction Mask (Full Page)
-#     plt.figure(figsize=(12, 10))
-#     plt.imshow((output > 0.6).float(), cmap='gray')
-#     plt.title(f"Prediction\nIoU: {iou:.2f}  Dice: {dice:.2f}", 
-#               fontsize=16, pad=20)
-#     plt.axis('off')
-#     writer.add_figure('prediction/mask', plt.gcf(), epoch)
-#     plt.close()
-    
-#     # 3. Ground Truth (Full Page)
-#     plt.figure(figsize=(12, 10))
-#     plt.imshow(target_mask, cmap='gray')
-#     plt.title("Ground Truth", fontsize=16, pad=20)
-#     plt.axis('off')
-#     writer.add_figure('ground_truth/mask', plt.gcf(), epoch)
-#     plt.close()
-
 def visualize_single_sample(writer, model, val_loader, epoch):
-    """Plot activations, prediction, GT, and Grad-CAM for UKAN model"""    
+    """Plot activations, prediction, and GT as separate full-size figures"""    
     # Get sample
-    torch.manual_seed(epoch)
+    torch.manual_seed(epoch)  # Makes selection consistent per epoch
     inputs, targets, _ = next(iter(val_loader))
     idx = torch.randint(0, inputs.size(0), (1,)).item()
     input_img = inputs[idx].unsqueeze(0).cuda()
     target_mask = targets[idx].unsqueeze(0).cuda()
     
-    # Enable gradient tracking
-    input_img.requires_grad_(True)
-    
-    # Forward pass with gradient tracking
-    model.train()  # Set to train mode to enable hooks
-    model.zero_grad()
-    
-    # Get output and activations
-    output, activations = model(input_img, return_activations=True)
-    output_sigmoid = torch.sigmoid(output)
+    # Forward pass
+    model.eval()
+    with torch.no_grad():
+        if isinstance(model, torch.nn.DataParallel):
+            output, activations = model.module(input_img, return_activations=True)
+        else:
+            output, activations = model(input_img, return_activations=True)
+        output = torch.sigmoid(output)
     
     # Calculate metrics
-    iou = iou_score(output_sigmoid, target_mask)
-    dice = dice_coef(output_sigmoid, target_mask)
+    iou = iou_score(output, target_mask)
+    dice = dice_coef(output, target_mask)
+    piou, _ = calculate_plausibility_iou(activations, target_mask)
     
-    # -------------------- GRAD-CAM COMPUTATION --------------------
-    # Use output as target for gradient computation
-    target = output.mean()  # Average across spatial dimensions
-    
-    # Backward pass to get gradients
-    target.backward(retain_graph=True)
-    
-    # Get gradients and activations
-    gradients = model.get_activations_gradient()
-    activations = model.get_activations()
-    
-    # Pool gradients across spatial dimensions
-    pooled_gradients = torch.mean(gradients, dim=[0, 2, 3])
-    
-    # Weight the activations by corresponding gradients
-    weighted_activations = torch.zeros_like(activations)
-    for i in range(activations.size(1)):  # For each channel
-        weighted_activations[:, i, :, :] = activations[:, i, :, :] * pooled_gradients[i]
-    
-    # Create Grad-CAM heatmap
-    grad_cam = torch.mean(weighted_activations, dim=1).squeeze(0)  # Average across channels
-    grad_cam = torch.relu(grad_cam)  # Apply ReLU to focus on positive influences
-    
-    # Normalize Grad-CAM
-    grad_cam = (grad_cam - grad_cam.min()) / (grad_cam.max() - grad_cam.min() + 1e-6)
-    
-    # -------------------- END GRAD-CAM --------------------
-    
-    # Prepare tensors for visualization
-    input_img = input_img.detach().cpu().squeeze()
+    # Prepare tensors
+    input_img = input_img.cpu().squeeze()
     target_mask = target_mask.cpu().squeeze()
-    output = output_sigmoid.detach().cpu().squeeze()
-    grad_cam = grad_cam.detach().cpu()
+    output = output.cpu().squeeze()
+    activations = activations.cpu().squeeze()
     
-    # Normalize activations for visualization
-    activations_vis = activations.mean(dim=1).squeeze(0).detach().cpu()
-    activations_vis = (activations_vis - activations_vis.min()) / (activations_vis.max() - activations_vis.min() + 1e-6)
+    # Normalize activations (mean across channels if needed)
+    if len(activations.shape) == 3:
+        activations = activations.mean(dim=0)
+    activations = (activations - activations.min()) / (activations.max() - activations.min() + 1e-6)
 
-    # Visualizations (same as before)
-    # 1. Activation Heatmap
+    # -----------------------------------------------
+    # 1. Activation Heatmap (Full Page)
     plt.figure(figsize=(12, 10))
-    plt.imshow(activations_vis, cmap='jet', vmin=0, vmax=1)
-    plt.title("Activation Map", fontsize=16, pad=20)
+    plt.imshow(activations, cmap='jet', vmin=0, vmax=1)
+    plt.title(f"Activation Map (PIoU: {piou:.2f})", fontsize=16, pad=20)
     plt.axis('off')
     cbar = plt.colorbar(fraction=0.046, pad=0.04)
     cbar.ax.tick_params(labelsize=12)
     writer.add_figure('activations/heatmap', plt.gcf(), epoch)
     plt.close()
     
-    # 2. Grad-CAM Heatmap
+    # 2. Prediction Mask (Full Page)
     plt.figure(figsize=(12, 10))
-    plt.imshow(grad_cam, cmap='jet', vmin=0, vmax=1)
-    plt.title("Grad-CAM: Gradient-weighted Activation Map", fontsize=16, pad=20)
-    plt.axis('off')
-    cbar = plt.colorbar(fraction=0.046, pad=0.04)
-    cbar.ax.tick_params(labelsize=12)
-    writer.add_figure('grad_cam/heatmap', plt.gcf(), epoch)
-    plt.close()
-    
-    # 3. Prediction Mask
-    plt.figure(figsize=(12, 10))
-    plt.imshow((output > 0.5).float(), cmap='gray')
-    plt.title(f"Prediction\nIoU: {iou:.2f}  Dice: {dice:.2f}", fontsize=16, pad=20)
+    plt.imshow((output > 0.6).float(), cmap='gray')
+    plt.title(f"Prediction\nIoU: {iou:.2f}  Dice: {dice:.2f}", 
+              fontsize=16, pad=20)
     plt.axis('off')
     writer.add_figure('prediction/mask', plt.gcf(), epoch)
     plt.close()
     
-    # 4. Ground Truth
+    # 3. Ground Truth (Full Page)
     plt.figure(figsize=(12, 10))
     plt.imshow(target_mask, cmap='gray')
     plt.title("Ground Truth", fontsize=16, pad=20)
     plt.axis('off')
     writer.add_figure('ground_truth/mask', plt.gcf(), epoch)
     plt.close()
+
+# def visualize_single_sample(writer, model, val_loader, epoch):
+#     """Plot activations, prediction, GT, and Grad-CAM for UKAN model"""    
+#     # Get sample
+#     torch.manual_seed(epoch)
+#     inputs, targets, _ = next(iter(val_loader))
+#     idx = torch.randint(0, inputs.size(0), (1,)).item()
+#     input_img = inputs[idx].unsqueeze(0).cuda()
+#     target_mask = targets[idx].unsqueeze(0).cuda()
     
-    # 5. Overlay: Input Image + Grad-CAM
-    plt.figure(figsize=(12, 10))
-    plt.imshow(input_img.permute(1, 2, 0) if input_img.dim() == 3 else input_img, cmap='gray')
-    plt.imshow(grad_cam, cmap='jet', alpha=0.5)
-    plt.title("Input Image with Grad-CAM Overlay", fontsize=16, pad=20)
-    plt.axis('off')
-    writer.add_figure('grad_cam/overlay', plt.gcf(), epoch)
-    plt.close()
+#     # Enable gradient tracking
+#     input_img.requires_grad_(True)
     
-    # Reset model to eval mode
-    model.eval()
+#     # Forward pass with gradient tracking
+#     model.train()  # Set to train mode to enable hooks
+#     model.zero_grad()
+    
+#     # Get output and activations
+#     output, activations = model(input_img, return_activations=True)
+#     output_sigmoid = torch.sigmoid(output)
+    
+#     # Calculate metrics
+#     iou = iou_score(output_sigmoid, target_mask)
+#     dice = dice_coef(output_sigmoid, target_mask)
+    
+#     # -------------------- GRAD-CAM COMPUTATION --------------------
+#     # Use output as target for gradient computation
+#     target = output.mean()  # Average across spatial dimensions
+    
+#     # Backward pass to get gradients
+#     target.backward(retain_graph=True)
+    
+#     # Get gradients and activations
+#     gradients = model.get_activations_gradient()
+#     activations = model.get_activations()
+    
+#     # Pool gradients across spatial dimensions
+#     pooled_gradients = torch.mean(gradients, dim=[0, 2, 3])
+    
+#     # Weight the activations by corresponding gradients
+#     weighted_activations = torch.zeros_like(activations)
+#     for i in range(activations.size(1)):  # For each channel
+#         weighted_activations[:, i, :, :] = activations[:, i, :, :] * pooled_gradients[i]
+    
+#     # Create Grad-CAM heatmap
+#     grad_cam = torch.mean(weighted_activations, dim=1).squeeze(0)  # Average across channels
+#     grad_cam = torch.relu(grad_cam)  # Apply ReLU to focus on positive influences
+    
+#     # Normalize Grad-CAM
+#     grad_cam = (grad_cam - grad_cam.min()) / (grad_cam.max() - grad_cam.min() + 1e-6)
+    
+#     # -------------------- END GRAD-CAM --------------------
+    
+#     # Prepare tensors for visualization
+#     input_img = input_img.detach().cpu().squeeze()
+#     target_mask = target_mask.cpu().squeeze()
+#     output = output_sigmoid.detach().cpu().squeeze()
+#     grad_cam = grad_cam.detach().cpu()
+    
+#     # Normalize activations for visualization
+#     activations_vis = activations.mean(dim=1).squeeze(0).detach().cpu()
+#     activations_vis = (activations_vis - activations_vis.min()) / (activations_vis.max() - activations_vis.min() + 1e-6)
+
+#     # Visualizations (same as before)
+#     # 1. Activation Heatmap
+#     plt.figure(figsize=(12, 10))
+#     plt.imshow(activations_vis, cmap='jet', vmin=0, vmax=1)
+#     plt.title("Activation Map", fontsize=16, pad=20)
+#     plt.axis('off')
+#     cbar = plt.colorbar(fraction=0.046, pad=0.04)
+#     cbar.ax.tick_params(labelsize=12)
+#     writer.add_figure('activations/heatmap', plt.gcf(), epoch)
+#     plt.close()
+    
+#     # 2. Grad-CAM Heatmap
+#     plt.figure(figsize=(12, 10))
+#     plt.imshow(grad_cam, cmap='jet', vmin=0, vmax=1)
+#     plt.title("Grad-CAM: Gradient-weighted Activation Map", fontsize=16, pad=20)
+#     plt.axis('off')
+#     cbar = plt.colorbar(fraction=0.046, pad=0.04)
+#     cbar.ax.tick_params(labelsize=12)
+#     writer.add_figure('grad_cam/heatmap', plt.gcf(), epoch)
+#     plt.close()
+    
+#     # 3. Prediction Mask
+#     plt.figure(figsize=(12, 10))
+#     plt.imshow((output > 0.5).float(), cmap='gray')
+#     plt.title(f"Prediction\nIoU: {iou:.2f}  Dice: {dice:.2f}", fontsize=16, pad=20)
+#     plt.axis('off')
+#     writer.add_figure('prediction/mask', plt.gcf(), epoch)
+#     plt.close()
+    
+#     # 4. Ground Truth
+#     plt.figure(figsize=(12, 10))
+#     plt.imshow(target_mask, cmap='gray')
+#     plt.title("Ground Truth", fontsize=16, pad=20)
+#     plt.axis('off')
+#     writer.add_figure('ground_truth/mask', plt.gcf(), epoch)
+#     plt.close()
+    
+#     # 5. Overlay: Input Image + Grad-CAM
+#     plt.figure(figsize=(12, 10))
+#     plt.imshow(input_img.permute(1, 2, 0) if input_img.dim() == 3 else input_img, cmap='gray')
+#     plt.imshow(grad_cam, cmap='jet', alpha=0.5)
+#     plt.title("Input Image with Grad-CAM Overlay", fontsize=16, pad=20)
+#     plt.axis('off')
+#     writer.add_figure('grad_cam/overlay', plt.gcf(), epoch)
+#     plt.close()
+    
+#     # Reset model to eval mode
+#     model.eval()
 
 def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
     """Calculate Plausibility IoU between thresholded activations and GT mask"""
