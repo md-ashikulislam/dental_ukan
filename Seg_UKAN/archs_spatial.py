@@ -246,9 +246,11 @@ class UKAN(nn.Module):
 
         # small 1x1 adapters to reduce concat channels after skip (we removed ChannelLinear)
         # after concat we run SpatialAttention then adapter conv to set to decoder channel
-        self.adapt1 = nn.Conv2d(e3 + e3, e2, kernel_size=1)   # p4 (e3) concat with enc3 (e3) -> reduce to e2
-        self.adapt2 = nn.Conv2d(e2 + e2, e1, kernel_size=1)   # decoder1 output (e2) concat with enc2 (e2) -> reduce to e1
-        self.adapt3 = nn.Conv2d(e1 + e1, e1, kernel_size=1)   # decoder2 output concat with enc1 -> keep e1
+        # 1x1 adapters after skip concat (decoder_out + encoder_out)
+        self.adapt1 = nn.Conv2d(e2 + e3, e2, kernel_size=1)  # decoder1 (e2) + t3 (e3)
+        self.adapt2 = nn.Conv2d(e1 + e2, e1, kernel_size=1)  # decoder2 (e1) + t2 (e2)
+        self.adapt3 = nn.Conv2d(e1 + e1, e1, kernel_size=1)  # decoder3 (e1) + t1 (e1)
+
 
         # spatial attention on skips
         self.spatial1 = SpatialAttention(kernel_size=7)

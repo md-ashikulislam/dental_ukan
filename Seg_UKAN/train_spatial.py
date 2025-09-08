@@ -333,7 +333,6 @@ def visualize_single_sample(writer, model, val_loader, epoch):
     writer.add_figure('ground_truth/mask', plt.gcf(), epoch)
     plt.close()
 
-
 def calculate_plausibility_iou(activations, gt_mask, threshold_percentile=90):
     """Calculate Plausibility IoU between thresholded activations and GT mask"""
     # Average across channels if multi-channel
