@@ -14,7 +14,7 @@ from utils import *
 from einops import rearrange
 
 import timm
-from timm.models.layers import DropPath, to_2tuple, trunc_normal_
+from timm.layers import DropPath, to_2tuple, trunc_normal_
 
 import math
 
@@ -22,6 +22,10 @@ import math
 import kannet
 from torch.nn import init
 
+__all__ = [
+    'KANLayer', 'KANBlock', 'DWConv', 'DW_bn_relu3D', 'DW_bn_relu',
+    'PatchEmbed3D', 'ECALayer', 'ConvLayer', 'D_ConvLayer3D', 'PANLayer', 'UKAN'
+]
 
 class KANLayer(nn.Module):
     def __init__(self, in_features, hidden_features=None, out_features=None, act_layer=nn.GELU, drop=0., no_kan=False):
