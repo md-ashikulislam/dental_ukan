@@ -28,7 +28,7 @@ from albumentations import MedianBlur
 from metrics import evaluate_multiple_thresholds 
 
 import archs
-import archs_spatial
+import Seg_UKAN.archs_EP as archs_EP
 from kan import KANLinear
 
 import losses
@@ -39,7 +39,7 @@ from utils import AverageMeter, str2bool
 from tensorboardX import SummaryWriter
 from prettytable import PrettyTable
 
-ARCH_NAMES = archs_spatial.__all__
+ARCH_NAMES = archs_EP.__all__
 LOSS_NAMES = losses.__all__
 LOSS_NAMES.append('BCEWithLogitsLoss')
 
@@ -437,7 +437,7 @@ def main():
     criterion = criterion.cuda() 
 
     # create model
-    model = archs_spatial.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
+    model = archs_EP.__dict__[config['arch']](config['num_classes'], config['input_channels'], config['deep_supervision'], embed_dims=config['input_list'], no_kan=config['no_kan'])
     print(f"no_kan mode is {'ACTIVATED' if config['no_kan'] else 'NOT activated'}")
 
 
