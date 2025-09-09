@@ -19,7 +19,7 @@ from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 import math
 
 
-from kannet import kannet
+import kannet
 from torch.nn import init
 
 
