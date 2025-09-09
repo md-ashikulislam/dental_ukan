@@ -28,7 +28,7 @@ from albumentations import MedianBlur
 from metrics import evaluate_multiple_thresholds 
 
 import archs
-import Seg_UKAN.archs_EP as archs_EP
+import archs_EP
 from kan import KANLinear
 
 import losses
