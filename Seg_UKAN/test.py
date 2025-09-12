@@ -96,7 +96,7 @@ def main():
         img_ext = '.JPG'
         mask_ext = '.jpg'
 
-    img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'test', '*' + img_ext)))
+    img_ids = sorted(glob(os.path.join(config['data_dir'], config['dataset'], 'test', 'images', '*' + img_ext)))
     img_ids = [os.path.splitext(os.path.basename(p))[0] for p in img_ids]
 
     val_img_ids = img_ids
