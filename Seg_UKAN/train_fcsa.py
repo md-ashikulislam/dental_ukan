@@ -284,9 +284,9 @@ def visualize_single_sample(writer, model, val_loader, epoch):
     model.eval()
     with torch.no_grad():
         if isinstance(model, torch.nn.DataParallel):
-            output, activations = model.module(input_img)
+            output, activations = model.module(input_img, return_activations=True)
         else:
-            output, activations = model(input_img)
+            output, activations = model(input_img, return_activations=True)
         output = torch.sigmoid(output)
     
     # Calculate metrics

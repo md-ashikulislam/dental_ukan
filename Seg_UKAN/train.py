@@ -5,6 +5,8 @@ from collections import OrderedDict
 from glob import glob
 import random
 import numpy as np
+from torchinfo import summary
+
 
 import pandas as pd
 import torch
@@ -453,6 +455,7 @@ def main():
     print(f"Model GFLOPS: {gflops}, Params: {params_formatted}")
 
     model = model.cuda()  # Move to CUDA
+    summary(model, input_size=(1, config['input_channels'], config['input_h'], config['input_w']))
 
     #FOR 2 GPUs
     # Move model to multiple GPUs
