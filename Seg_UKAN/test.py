@@ -112,8 +112,8 @@ def main():
     # Validation dataset and loader
     val_dataset = Dataset(
         img_ids=val_img_ids,
-        img_dir=os.path.join(config['data_dir'], config['dataset'], 'images'),
-        mask_dir=os.path.join(config['data_dir'], config['dataset'], 'masks'),
+        img_dir=os.path.join(config['data_dir'], config['dataset'], 'test', 'images'),
+        mask_dir=os.path.join(config['data_dir'], config['dataset'], 'test', 'masks'),
         img_ext=img_ext,
         mask_ext=mask_ext,
         num_classes=config['num_classes'],
