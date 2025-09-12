@@ -77,6 +77,9 @@ def main():
     if any(key.startswith('module.') for key in state_dict.keys()):
         state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
 
+    # 🔑 Remove profiling keys (total_ops, total_params, etc.)
+    state_dict = {k: v for k, v in state_dict.items() if "total_ops" not in k and "total_params" not in k}
+
     # Load the state dictionary into the model
     try:
         model.load_state_dict(state_dict, strict=True)
