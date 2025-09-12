@@ -509,7 +509,7 @@ def main():
 
     dataset_name = config['dataset']
 
-    if dataset_name == 'Dental' or 'new_dataset':
+    if dataset_name == 'Dental' or 'new_dataset' or 'Defense_Dataset':
        img_ext = '.JPG'       
        mask_ext = '.jpg'
     
