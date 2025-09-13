@@ -14,6 +14,8 @@ from sklearn.model_selection import train_test_split
 from tqdm import tqdm
 from collections import OrderedDict
 import archs
+import archs_fcsa_fusion_concat
+
 from dataset import Dataset
 from metrics import iou_score, dice_coef
 from utils import AverageMeter
@@ -61,7 +63,7 @@ def main():
     print(f"Using device: {device}")
 
     # Initialize model
-    model = archs.__dict__[config['arch']](
+    model = archs_fcsa_fusion_concat.__dict__[config['arch']](
         config['num_classes'],
         config['input_channels'],
         config['deep_supervision'],
